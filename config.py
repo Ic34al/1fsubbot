@@ -37,8 +37,8 @@ JOIN_REQS_DB2 = os.environ.get("JOIN_REQS_DB2", DB_URI)
 FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "-1002276001042"))
 FORCE_SUB_CHANNEL2 = int(os.environ.get("FORCESUB_CHANNEL2", "-1002296471833"))
 
-START_PIC = os.environ.get("START_PIC", "https://telegra.ph/file/ec17880d61180d3312d6a.jpg")
-FORCE_PIC = os.environ.get("FORCE_PIC", "https://telegra.ph/file/e292b12890b8b4b9dcbd1.jpg")
+START_PIC = os.environ.get("START_PIC", "https://envs.sh/wH9.jpg")
+FORCE_PIC = os.environ.get("FORCE_PIC", "https://envs.sh/wHv.jpg")
 
 
 TG_BOT_WORKERS = int(os.environ.get("TG_BOT_WORKERS", "4"))
