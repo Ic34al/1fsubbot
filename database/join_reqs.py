@@ -1,5 +1,6 @@
 #(©)Javpostr made by @rohit_1888
 
+import motor
 import motor.motor_asyncio
 from config import *
 
