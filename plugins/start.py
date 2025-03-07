@@ -15,9 +15,6 @@ from config import *
 from helper_func import *
 from database.database import *
 
-
-
-
 @Bot.on_message(filters.command('start') & filters.private & subscribed1 & subscribed2)
 async def start_command(client: Client, message: Message):
     id = message.from_user.id
@@ -27,7 +24,7 @@ async def start_command(client: Client, message: Message):
         except:
             pass
     text = message.text
-    if len(text)>7:
+    if len(text) > 7:
         try:
             base64_string = text.split(" ", 1)[1]
         except:
@@ -41,7 +38,7 @@ async def start_command(client: Client, message: Message):
             except:
                 return
             if start <= end:
-                ids = range(start,end+1)
+                ids = range(start, end + 1)
             else:
                 ids = []
                 i = start
@@ -55,6 +52,7 @@ async def start_command(client: Client, message: Message):
                 ids = [int(int(argument[1]) / abs(client.db_channel.id))]
             except:
                 return
+        
         temp_msg = await message.reply("Please wait...")
         try:
             messages = await get_messages(client, ids)
@@ -62,13 +60,15 @@ async def start_command(client: Client, message: Message):
             await message.reply_text("Something went wrong..!")
             return
         await temp_msg.delete()
+        
+        snt_msgs = []
 
         for msg in messages:
-
-            if bool(CUSTOM_CAPTION) & bool(msg.document):
-                caption = CUSTOM_CAPTION.format(previouscaption = "" if not msg.caption else msg.caption.html, filename = msg.document.file_name)
+            original_caption = msg.caption.html if msg.caption else ""
+            if CUSTOM_CAPTION:
+                caption = f"{original_caption}\n\n{CUSTOM_CAPTION}"
             else:
-                caption = "" if not msg.caption else msg.caption.html
+                caption = original_caption
 
             if DISABLE_CHANNEL_BUTTON:
                 reply_markup = msg.reply_markup
@@ -76,20 +76,35 @@ async def start_command(client: Client, message: Message):
                 reply_markup = None
 
             try:
-                await msg.copy(chat_id=message.from_user.id, caption = caption, parse_mode = ParseMode.HTML, reply_markup = reply_markup, protect_content=PROTECT_CONTENT)
+                snt_msg = await msg.copy(
+                    chat_id=message.from_user.id,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
+                    protect_content=PROTECT_CONTENT
+                )
                 await asyncio.sleep(0.5)
+                snt_msgs.append(snt_msg)
             except FloodWait as e:
                 await asyncio.sleep(e.x)
-                await msg.copy(chat_id=message.from_user.id, caption = caption, parse_mode = ParseMode.HTML, reply_markup = reply_markup, protect_content=PROTECT_CONTENT)
+                snt_msg = await msg.copy(
+                    chat_id=message.from_user.id,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
+                    protect_content=PROTECT_CONTENT
+                )
+                snt_msgs.append(snt_msg)
             except:
                 pass
+        
         return
     else:
         reply_markup = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("😊 About Me", callback_data = "about"),
-                    InlineKeyboardButton("🔒 Close", callback_data = "close")
+                    InlineKeyboardButton("😊 About Me", callback_data="about"),
+                    InlineKeyboardButton("🔒 Close", callback_data="close")
                 ]
             ]
         )
@@ -102,10 +117,9 @@ async def start_command(client: Client, message: Message):
                 mention=message.from_user.mention,
                 id=message.from_user.id
             ),
-            reply_markup=reply_markup)
+            reply_markup=reply_markup
+        )
         return
-
-
 
     
 #=====================================================================================##
