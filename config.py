@@ -10,7 +10,7 @@ from logging.handlers import RotatingFileHandler
 
 
 #Bot token @Botfather
-TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "40")
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "7396885670:AAHbg3Pt4IJQjZ34BejVJ0cKy50VsPvtWlE")
 
 #Your API ID from my.telegram.org
 APP_ID = int(os.environ.get("APP_ID", "22418774"))
@@ -19,7 +19,7 @@ APP_ID = int(os.environ.get("APP_ID", "22418774"))
 API_HASH = os.environ.get("API_HASH", "d8c8dab274f9a811814a6a96d044028e")
 
 #Your db channel Id
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1002374692295"))
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1002412358436"))
 
 #OWNER ID
 OWNER_ID = int(os.environ.get("OWNER_ID", "5254177746"))
@@ -34,12 +34,12 @@ JOIN_REQS_DB = os.environ.get("JOIN_REQS_DB", DB_URI)
 JOIN_REQS_DB2 = os.environ.get("JOIN_REQS_DB2", DB_URI)
 
 #force sub channel id, if you want enable force sub
-FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "-1002201572719"))
-FORCE_SUB_CHANNEL2 = int(os.environ.get("FORCESUB_CHANNEL2", "-1002170811388"))
+FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "-1002276001042"))
+FORCE_SUB_CHANNEL2 = int(os.environ.get("FORCESUB_CHANNEL2", "-1002296471833"))
 
-START_PIC = os.environ.get("START_PIC", " ")
+START_PIC = os.environ.get("START_PIC", "https://telegra.ph/file/ec17880d61180d3312d6a.jpg")
+FORCE_PIC = os.environ.get("FORCE_PIC", "https://telegra.ph/file/e292b12890b8b4b9dcbd1.jpg")
 
-FORCE_PIC = os.environ.get("FORCE_PIC", " ")
 
 TG_BOT_WORKERS = int(os.environ.get("TG_BOT_WORKERS", "4"))
 
