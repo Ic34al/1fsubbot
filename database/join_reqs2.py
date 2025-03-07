@@ -2,7 +2,7 @@
 
 
 import motor.motor_asyncio
-from config import FORCE_SUB_CHANNEL2
+from config import *
 
 class JoinReqs2:
 
