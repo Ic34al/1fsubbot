@@ -1,7 +1,7 @@
 #(©)Javpostr made by @rohit_1888
 
 import motor.motor_asyncio
-from config import FORCE_SUB_CHANNEL
+from config import *
 
 class JoinReqs:
 
