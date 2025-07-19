@@ -139,7 +139,7 @@ async def not_joined(client: Client, message: Message):
             InlineKeyboardButton(text="ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ", url=client.invitelink2),
         ],
         [
-            InlineKeyboardButton(text="Follow On Instagram", url="https://www.instagram.com/animexpeak?igsh=MW5iOW9nb3hhMWY0NA==")
+            InlineKeyboardButton(text="Join For All Animes, url="https://t.me/+0VmAgFtSHGIxNjg1")
         ]
     ]
     
