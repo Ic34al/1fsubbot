@@ -24,7 +24,6 @@ from helper_func import (
     is_subscribed1,
     is_subscribed2
 )
-)
 
 
 async def send_force_message(client, message):
