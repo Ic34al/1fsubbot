@@ -1,233 +1,225 @@
-#(©)Codexbotz
-
 import base64
 import re
 import asyncio
+
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus
-from config import *
-from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
 from pyrogram.errors import FloodWait
+from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
+
+from config import ADMINS, FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2
 from database.join_reqs import JoinReqs
 from database.join_reqs2 import JoinReqs2
 
 
-db = JoinReqs
-db2 = JoinReqs2
+async def is_subscribed1(filter, client, update):
+    if not FORCE_SUB_CHANNEL:
+        return True
+
+    if not getattr(update, "from_user", None):
+        return False
+
+    user_id = update.from_user.id
+
+    if user_id in ADMINS:
+        return True
+
+    try:
+        db = JoinReqs()
+        user = await db.get_user(user_id)
+
+        if user and user.get("user_id") == user_id:
+            return True
+
+        member = await client.get_chat_member(
+            chat_id=FORCE_SUB_CHANNEL,
+            user_id=user_id
+        )
+
+        return member.status in (
+            ChatMemberStatus.OWNER,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.MEMBER
+        )
+
+    except UserNotParticipant:
+        return False
+
+    except Exception:
+        return False
+
 
 async def is_subscribed2(filter, client, update):
     if not FORCE_SUB_CHANNEL2:
         return True
+
+    if not getattr(update, "from_user", None):
+        return False
+
     user_id = update.from_user.id
-    user = await db2().get_user(update.from_user.id)
+
     if user_id in ADMINS:
         return True
-    if user and user["user_id"] == update.from_user.id:
-        return True
+
     try:
-        member = await client.get_chat_member(chat_id = FORCE_SUB_CHANNEL2, user_id = user_id)
+        db = JoinReqs2()
+        user = await db.get_user(user_id)
+
+        if user and user.get("user_id") == user_id:
+            return True
+
+        member = await client.get_chat_member(
+            chat_id=FORCE_SUB_CHANNEL2,
+            user_id=user_id
+        )
+
+        return member.status in (
+            ChatMemberStatus.OWNER,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.MEMBER
+        )
+
     except UserNotParticipant:
         return False
 
-    if not member.status in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
-        return False
-    else:
-        return True
-
-async def is_subscribed1(filter, client, update):
-    if not FORCE_SUB_CHANNEL:
-        return True
-    user_id = update.from_user.id
-    user = await db().get_user(update.from_user.id)
-    if user_id in ADMINS:
-        return True
-    if user and user["user_id"] == update.from_user.id:
-        return True
-    try:
-        member = await client.get_chat_member(chat_id = FORCE_SUB_CHANNEL, user_id = user_id)
-    except UserNotParticipant:
+    except Exception:
         return False
 
-    if not member.status in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
-        return False
-    else:
-        return True
 
 async def encode(string):
-    string_bytes = string.encode("ascii")
-    base64_bytes = base64.urlsafe_b64encode(string_bytes)
-    base64_string = (base64_bytes.decode("ascii")).strip("=")
-    return base64_string
+    return base64.urlsafe_b64encode(
+        string.encode("utf-8")
+    ).decode("utf-8").rstrip("=")
+
 
 async def decode(base64_string):
-    base64_string = base64_string.strip("=") # links generated before this commit will be having = sign, hence striping them to handle padding errors.
-    base64_bytes = (base64_string + "=" * (-len(base64_string) % 4)).encode("ascii")
-    string_bytes = base64.urlsafe_b64decode(base64_bytes) 
-    string = string_bytes.decode("ascii")
-    return string
+    try:
+        base64_string = base64_string.rstrip("=")
+        padding = "=" * (-len(base64_string) % 4)
+
+        return base64.urlsafe_b64decode(
+            (base64_string + padding).encode("utf-8")
+        ).decode("utf-8")
+
+    except Exception:
+        raise ValueError("Invalid start parameter.")
+
 
 async def get_messages(client, message_ids):
     messages = []
-    total_messages = 0
-    while total_messages != len(message_ids):
-        temb_ids = message_ids[total_messages:total_messages+200]
+
+    for start in range(0, len(message_ids), 200):
+        batch_ids = message_ids[start:start + 200]
+
         try:
             msgs = await client.get_messages(
                 chat_id=client.db_channel.id,
-                message_ids=temb_ids
+                message_ids=batch_ids
             )
+
+            if isinstance(msgs, list):
+                messages.extend(
+                    msg for msg in msgs
+                    if msg is not None
+                )
+            elif msgs is not None:
+                messages.append(msgs)
+
         except FloodWait as e:
-            await asyncio.sleep(e.x)
+            await asyncio.sleep(e.value)
+
             msgs = await client.get_messages(
                 chat_id=client.db_channel.id,
-                message_ids=temb_ids
+                message_ids=batch_ids
             )
-        except:
-            pass
-        total_messages += len(temb_ids)
-        messages.extend(msgs)
+
+            if isinstance(msgs, list):
+                messages.extend(
+                    msg for msg in msgs
+                    if msg is not None
+                )
+            elif msgs is not None:
+                messages.append(msgs)
+
+        except Exception:
+            continue
+
     return messages
+
 
 async def get_message_id(client, message):
     if message.forward_from_chat:
         if message.forward_from_chat.id == client.db_channel.id:
             return message.forward_from_message_id
-        else:
-            return 0
-    elif message.forward_sender_name:
+
         return 0
-    elif message.text:
-        pattern = "https://t.me/(?:c/)?(.*)/(\d+)"
-        matches = re.match(pattern,message.text)
-        if not matches:
-            return 0
-        channel_id = matches.group(1)
-        msg_id = int(matches.group(2))
-        if channel_id.isdigit():
-            if f"-100{channel_id}" == str(client.db_channel.id):
-                return msg_id
-        else:
-            if channel_id == client.db_channel.username:
-                return msg_id
-    else:
+
+    if message.forward_sender_name:
         return 0
+
+    if not message.text:
+        return 0
+
+    pattern = r"^https?://t\.me/(?:c/)?([^/]+)/(\d+)"
+    matches = re.match(pattern, message.text.strip())
+
+    if not matches:
+        return 0
+
+    channel_id = matches.group(1)
+    msg_id = int(matches.group(2))
+
+    if channel_id.isdigit():
+        if f"-100{channel_id}" == str(client.db_channel.id):
+            return msg_id
+
+    elif client.db_channel.username:
+        if channel_id.lstrip("@") == client.db_channel.username:
+            return msg_id
+
+    return 0
 
 
 def get_readable_time(seconds: int) -> str:
-    count = 0
-    up_time = ""
-    time_list = []
-    time_suffix_list = ["s", "m", "h", "days"]
-    while count < 4:
-        count += 1
-        remainder, result = divmod(seconds, 60) if count < 3 else divmod(seconds, 24)
-        if seconds == 0 and remainder == 0:
-            break
-        time_list.append(int(result))
-        seconds = int(remainder)
-    hmm = len(time_list)
-    for x in range(hmm):
-        time_list[x] = str(time_list[x]) + time_suffix_list[x]
-    if len(time_list) == 4:
-        up_time += f"{time_list.pop()}, "
-    time_list.reverse()
-    up_time += ":".join(time_list)
-    return up_time
+    seconds = max(0, int(seconds))
 
-def get_exp_time(seconds):
-    periods = [('days', 86400), ('hours', 3600), ('mins', 60), ('secs', 1)]
-    result = ''
-    for period_name, period_seconds in periods:
-        if seconds >= period_seconds:
-            period_value, seconds = divmod(seconds, period_seconds)
-            result += f'{int(period_value)}{period_name}'
-    return result
+    days, seconds = divmod(seconds, 86400)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+
+    parts = []
+
+    if days:
+        parts.append(f"{days}d")
+    if hours or parts:
+        parts.append(f"{hours}h")
+    if minutes or parts:
+        parts.append(f"{minutes}m")
+
+    parts.append(f"{seconds}s")
+
+    return " ".join(parts)
 
 
-subscribed1 = filters.create(is_subscribed1)
-subscribed2 = filters.create(is_subscribed2)
+def get_exp_time(seconds: int) -> str:
+    seconds = max(0, int(seconds))
 
+    periods = (
+        ("days", 86400),
+        ("hours", 3600),
+        ("mins", 60),
+        ("secs", 1)
+    )
 
-async def encode(string):
-    string_bytes = string.encode("ascii")
-    base64_bytes = base64.urlsafe_b64encode(string_bytes)
-    base64_string = (base64_bytes.decode("ascii")).strip("=")
-    return base64_string
+    result = []
 
-async def decode(base64_string):
-    base64_string = base64_string.strip("=") # links generated before this commit will be having = sign, hence striping them to handle padding errors.
-    base64_bytes = (base64_string + "=" * (-len(base64_string) % 4)).encode("ascii")
-    string_bytes = base64.urlsafe_b64decode(base64_bytes) 
-    string = string_bytes.decode("ascii")
-    return string
+    for name, value in periods:
+        amount, seconds = divmod(seconds, value)
 
-async def get_messages(client, message_ids):
-    messages = []
-    total_messages = 0
-    while total_messages != len(message_ids):
-        temb_ids = message_ids[total_messages:total_messages+200]
-        try:
-            msgs = await client.get_messages(
-                chat_id=client.db_channel.id,
-                message_ids=temb_ids
-            )
-        except FloodWait as e:
-            await asyncio.sleep(e.x)
-            msgs = await client.get_messages(
-                chat_id=client.db_channel.id,
-                message_ids=temb_ids
-            )
-        except:
-            pass
-        total_messages += len(temb_ids)
-        messages.extend(msgs)
-    return messages
+        if amount:
+            result.append(f"{amount}{name}")
 
-async def get_message_id(client, message):
-    if message.forward_from_chat:
-        if message.forward_from_chat.id == client.db_channel.id:
-            return message.forward_from_message_id
-        else:
-            return 0
-    elif message.forward_sender_name:
-        return 0
-    elif message.text:
-        pattern = "https://t.me/(?:c/)?(.*)/(\d+)"
-        matches = re.match(pattern,message.text)
-        if not matches:
-            return 0
-        channel_id = matches.group(1)
-        msg_id = int(matches.group(2))
-        if channel_id.isdigit():
-            if f"-100{channel_id}" == str(client.db_channel.id):
-                return msg_id
-        else:
-            if channel_id == client.db_channel.username:
-                return msg_id
-    else:
-        return 0
-
-
-def get_readable_time(seconds: int) -> str:
-    count = 0
-    up_time = ""
-    time_list = []
-    time_suffix_list = ["s", "m", "h", "days"]
-    while count < 4:
-        count += 1
-        remainder, result = divmod(seconds, 60) if count < 3 else divmod(seconds, 24)
-        if seconds == 0 and remainder == 0:
-            break
-        time_list.append(int(result))
-        seconds = int(remainder)
-    hmm = len(time_list)
-    for x in range(hmm):
-        time_list[x] = str(time_list[x]) + time_suffix_list[x]
-    if len(time_list) == 4:
-        up_time += f"{time_list.pop()}, "
-    time_list.reverse()
-    up_time += ":".join(time_list)
-    return up_time
+    return " ".join(result) if result else "0secs"
 
 
 subscribed1 = filters.create(is_subscribed1)
