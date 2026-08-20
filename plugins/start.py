@@ -1,4 +1,7 @@
-from pyrogram import Client, filters
+import asyncio
+
+from pyrogram import filters
+from pyrogram.errors import FloodWait
 from pyrogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -7,49 +10,42 @@ from pyrogram.types import (
 
 from bot import Bot
 from config import (
-    FORCE_SUB_CHANNEL,
-    FORCE_SUB_CHANNEL2,
+    ADMINS,
+    CUSTOM_CAPTION,
+    DISABLE_CHANNEL_BUTTON,
+    FORCE_MSG,
     FORCE_PIC,
-    FORCE_MSG
+    PROTECT_CONTENT,
+    START_MSG
+)
+from helper_func import (
+    decode,
+    subscribed1,
+    subscribed2
 )
 
 
-@Bot.on_message(
-    filters.command("start")
-    & filters.private
-    & ~filters.user(0)
-)
-async def not_joined(client: Client, message: Message):
-
+async def send_force_message(client, message):
     buttons = []
 
-    if FORCE_SUB_CHANNEL:
-        invite_link = getattr(client, "invitelink", None)
+    if getattr(client, "invitelink", None):
+        buttons.append([
+            InlineKeyboardButton(
+                "ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ 1",
+                url=client.invitelink
+            )
+        ])
 
-        if invite_link:
-            buttons.append([
-                InlineKeyboardButton(
-                    "ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ 1",
-                    url=invite_link
-                )
-            ])
-
-    if FORCE_SUB_CHANNEL2:
-        invite_link2 = getattr(client, "invitelink2", None)
-
-        if invite_link2:
-            buttons.append([
-                InlineKeyboardButton(
-                    "ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ 2",
-                    url=invite_link2
-                )
-            ])
+    if getattr(client, "invitelink2", None):
+        buttons.append([
+            InlineKeyboardButton(
+                "ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ 2",
+                url=client.invitelink2
+            )
+        ])
 
     if not buttons:
-        await message.reply_text(
-            "Hello! The bot is running successfully."
-        )
-        return
+        return False
 
     start_param = (
         message.command[1]
@@ -61,10 +57,7 @@ async def not_joined(client: Client, message: Message):
         buttons.append([
             InlineKeyboardButton(
                 "🔄 Try Again",
-                url=(
-                    f"https://t.me/{client.username}"
-                    f"?start={start_param}"
-                )
+                url=f"https://t.me/{client.username}?start={start_param}"
             )
         ])
 
@@ -78,20 +71,184 @@ async def not_joined(client: Client, message: Message):
         id=user.id
     )
 
-    reply_markup = InlineKeyboardMarkup(buttons)
+    markup = InlineKeyboardMarkup(buttons)
 
-    if FORCE_PIC:
-        try:
+    try:
+        if FORCE_PIC:
             await message.reply_photo(
                 photo=FORCE_PIC,
                 caption=caption,
-                reply_markup=reply_markup
+                reply_markup=markup
             )
-            return
-        except Exception:
-            pass
+        else:
+            await message.reply_text(
+                caption,
+                reply_markup=markup
+            )
+    except Exception:
+        await message.reply_text(
+            caption,
+            reply_markup=markup
+        )
 
-    await message.reply_text(
-        text=caption,
-        reply_markup=reply_markup
-    )
+    return True
+
+
+@Bot.on_message(
+    filters.command("start")
+    & filters.private
+)
+async def start(client, message: Message):
+
+    user = message.from_user
+
+    if not user:
+        return
+
+    # Force subscription checks.
+    # Admins can bypass force subscription.
+    if user.id not in ADMINS:
+
+        is_subscribed_channel1 = await subscribed1(
+            None,
+            client,
+            message
+        )
+
+        if not is_subscribed_channel1:
+            await send_force_message(client, message)
+            return
+
+        is_subscribed_channel2 = await subscribed2(
+            None,
+            client,
+            message
+        )
+
+        if not is_subscribed_channel2:
+            await send_force_message(client, message)
+            return
+
+    # Normal /start
+    if len(message.command) == 1:
+
+        try:
+            await message.reply_photo(
+                photo=START_PIC,
+                caption=START_MSG.format(
+                    first=user.first_name or "",
+                    last=user.last_name or "",
+                    username=f"@{user.username}" if user.username else "",
+                    mention=user.mention,
+                    id=user.id
+                )
+            )
+        except Exception:
+            await message.reply_text(
+                START_MSG.format(
+                    first=user.first_name or "",
+                    last=user.last_name or "",
+                    username=f"@{user.username}" if user.username else "",
+                    mention=user.mention,
+                    id=user.id
+                )
+            )
+
+        return
+
+    # Decode file-sharing link
+    try:
+        data = await decode(message.command[1])
+        parts = data.split("-")
+
+        if len(parts) < 2 or parts[0] != "get":
+            raise ValueError("Invalid link")
+
+        channel_id = abs(client.db_channel.id)
+
+        # Single file link
+        if len(parts) == 2:
+            message_ids = [
+                int(parts[1]) // channel_id
+            ]
+
+        # Batch link
+        elif len(parts) == 3:
+            first_id = int(parts[1]) // channel_id
+            last_id = int(parts[2]) // channel_id
+
+            if first_id <= 0 or last_id <= 0:
+                raise ValueError("Invalid message ID")
+
+            if first_id > last_id:
+                first_id, last_id = last_id, first_id
+
+            # Safety limit
+            if last_id - first_id > 1000:
+                await message.reply_text(
+                    "❌ This batch link contains too many files."
+                )
+                return
+
+            message_ids = list(
+                range(first_id, last_id + 1)
+            )
+
+        else:
+            raise ValueError("Invalid link")
+
+    except Exception:
+        await message.reply_text(
+            "❌ This link is invalid or has expired."
+        )
+        return
+
+    sent = 0
+
+    # Send files
+    for message_id in message_ids:
+
+        try:
+            db_message = await client.get_messages(
+                client.db_channel.id,
+                message_id
+            )
+
+            if not db_message or db_message.empty:
+                continue
+
+            await db_message.copy(
+                chat_id=message.chat.id,
+                caption=CUSTOM_CAPTION or None,
+                protect_content=PROTECT_CONTENT
+            )
+
+            sent += 1
+
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+
+            try:
+                db_message = await client.get_messages(
+                    client.db_channel.id,
+                    message_id
+                )
+
+                if db_message and not db_message.empty:
+                    await db_message.copy(
+                        chat_id=message.chat.id,
+                        caption=CUSTOM_CAPTION or None,
+                        protect_content=PROTECT_CONTENT
+                    )
+                    sent += 1
+
+            except Exception:
+                continue
+
+        except Exception:
+            continue
+
+    if sent == 0:
+        await message.reply_text(
+            "❌ File not found. The link may be invalid or the source file was deleted."
+        )
