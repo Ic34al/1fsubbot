@@ -21,8 +21,9 @@ from config import (
 )
 from helper_func import (
     decode,
-    subscribed1,
-    subscribed2
+    is_subscribed1,
+    is_subscribed2
+)
 )
 
 
@@ -110,21 +111,21 @@ async def start(client, message: Message):
     # Admins can bypass force subscription.
     if user.id not in ADMINS:
 
-        is_subscribed_channel1 = await subscribed1(
-            None,
-            client,
-            message
-        )
+        is_subscribed_channel1 = await is_subscribed1(
+    None,
+    client,
+    message
+)
 
         if not is_subscribed_channel1:
             await send_force_message(client, message)
             return
 
-        is_subscribed_channel2 = await subscribed2(
-            None,
-            client,
-            message
-        )
+        is_subscribed_channel2 = await is_subscribed2(
+    None,
+    client,
+    message
+)
 
         if not is_subscribed_channel2:
             await send_force_message(client, message)
