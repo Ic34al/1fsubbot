@@ -1,90 +1,149 @@
-#(©)CodeXBotz
-
-
-
-
 import os
 import logging
 from logging.handlers import RotatingFileHandler
 
 
+def get_int_env(name, default=None, required=False):
+    value = os.environ.get(name)
 
-#Bot token @Botfather
-TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
+    if value is None or value.strip() == "":
+        if required:
+            raise RuntimeError(f"Missing required environment variable: {name}")
+        return default
 
-#Your API ID from my.telegram.org
-APP_ID = int(os.environ.get("APP_ID", ""))
-
-#Your API Hash from my.telegram.org
-API_HASH = os.environ.get("API_HASH", "")
-
-#Your db channel Id
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", ""))
-
-#OWNER ID
-OWNER_ID = int(os.environ.get("OWNER_ID", ""))
-
-#Port
-PORT = os.environ.get("PORT", "8080")
-
-#Database 
-DB_URI = os.environ.get("DATABASE_URL", "")
-DB_NAME = os.environ.get("DATABASE_NAME", "filesharexbot")
-JOIN_REQS_DB = os.environ.get("JOIN_REQS_DB", DB_URI)
-JOIN_REQS_DB2 = os.environ.get("JOIN_REQS_DB2", DB_URI)
-
-#force sub channel id, if you want enable force sub
-FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", ""))
-FORCE_SUB_CHANNEL2 = int(os.environ.get("FORCESUB_CHANNEL2", ""))
-
-START_PIC = os.environ.get("START_PIC", "https://envs.sh/wH9.jpg")
-FORCE_PIC = os.environ.get("FORCE_PIC", "https://envs.sh/wgj.jpg")
+    try:
+        return int(value)
+    except ValueError:
+        raise RuntimeError(f"{name} must be a valid integer.")
 
 
-TG_BOT_WORKERS = int(os.environ.get("TG_BOT_WORKERS", "4"))
+# Telegram
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "").strip()
+APP_ID = get_int_env("APP_ID", required=True)
+API_HASH = os.environ.get("API_HASH", "").strip()
 
-#start message
-START_MSG = os.environ.get("START_MESSAGE", "Hello {first}\n\nI can store private files in Specified Channel and other users can access it from special link.")
-try:
-    ADMINS=[]
-    for x in (os.environ.get("ADMINS", "").split()):
-        ADMINS.append(int(x))
-except ValueError:
-        raise Exception("Your Admins list does not contain valid integers.")
+if not TG_BOT_TOKEN:
+    raise RuntimeError("Missing required environment variable: TG_BOT_TOKEN")
 
-#Force sub message 
-FORCE_MSG = os.environ.get("FORCE_SUB_MESSAGE", "Hello {first}\n\n<b>You need to join in my Channel/Group to use me\n\nKindly Please join Channel</b>")
+if not API_HASH:
+    raise RuntimeError("Missing required environment variable: API_HASH")
 
-#set your Custom Caption here, Keep None for Disable Custom Caption
-CUSTOM_CAPTION = os.environ.get("CUSTOM_CAPTION", "<b>• ʙʏ @Ongoing_Anime_Time</b>")
 
-#set True if you want to prevent users from forwarding files from bot
-PROTECT_CONTENT = True if os.environ.get('PROTECT_CONTENT', "False") == "True" else False
+# Database channel
+CHANNEL_ID = get_int_env("CHANNEL_ID", required=True)
 
-#Set true if you want Disable your Channel Posts Share button
-DISABLE_CHANNEL_BUTTON = os.environ.get("DISABLE_CHANNEL_BUTTON", None) == 'True'
+# Owner
+OWNER_ID = get_int_env("OWNER_ID", required=True)
+
+# Web port
+PORT = get_int_env("PORT", default=8080)
+
+
+# MongoDB
+DB_URI = os.environ.get("DATABASE_URL", "").strip()
+DB_NAME = os.environ.get("DATABASE_NAME", "filesharexbot").strip()
+
+if not DB_URI:
+    raise RuntimeError("Missing required environment variable: DATABASE_URL")
+
+JOIN_REQS_DB = os.environ.get("JOIN_REQS_DB", DB_URI).strip()
+JOIN_REQS_DB2 = os.environ.get("JOIN_REQS_DB2", DB_URI).strip()
+
+
+# Force subscription
+FORCE_SUB_CHANNEL = get_int_env("FORCE_SUB_CHANNEL", default=0)
+FORCE_SUB_CHANNEL2 = get_int_env("FORCE_SUB_CHANNEL2", default=0)
+
+
+# Images
+START_PIC = os.environ.get(
+    "START_PIC",
+    "https://envs.sh/wH9.jpg"
+).strip()
+
+FORCE_PIC = os.environ.get(
+    "FORCE_PIC",
+    "https://envs.sh/wgj.jpg"
+).strip()
+
+
+# Workers
+TG_BOT_WORKERS = get_int_env("TG_BOT_WORKERS", default=8)
+
+
+# Messages
+START_MSG = os.environ.get(
+    "START_MESSAGE",
+    "Hello {first}\n\n"
+    "I can store private files in the specified channel "
+    "and users can access them using a special link."
+)
+
+FORCE_MSG = os.environ.get(
+    "FORCE_SUB_MESSAGE",
+    "Hello {first}\n\n"
+    "<b>You need to join the required channel(s) to use this bot.</b>"
+)
+
+
+# Admins
+ADMINS = []
+
+admins_env = os.environ.get("ADMINS", "").strip()
+
+if admins_env:
+    try:
+        ADMINS = [int(x) for x in admins_env.split()]
+    except ValueError:
+        raise RuntimeError(
+            "ADMINS must contain only valid numeric Telegram user IDs."
+        )
+
+if OWNER_ID not in ADMINS:
+    ADMINS.append(OWNER_ID)
+
+
+# Custom caption
+CUSTOM_CAPTION = os.environ.get("CUSTOM_CAPTION", "").strip()
+
+
+# Content protection
+PROTECT_CONTENT = (
+    os.environ.get("PROTECT_CONTENT", "False").strip().lower() == "true"
+)
+
+
+# Channel button setting
+DISABLE_CHANNEL_BUTTON = (
+    os.environ.get("DISABLE_CHANNEL_BUTTON", "False").strip().lower() == "true"
+)
+
 
 BOT_STATS_TEXT = "<b>BOT UPTIME</b>\n{uptime}"
-USER_REPLY_TEXT = "❌Don't send me messages directly I'm only File Share bot!"
 
-ADMINS.append(OWNER_ID)
-ADMINS.append(8114164316)
+USER_REPLY_TEXT = (
+    "❌ Don't send me messages directly. "
+    "I'm only a file-sharing bot!"
+)
 
+
+# Logging
 LOG_FILE_NAME = "filesharingbot.txt"
 
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s - %(levelname)s] - %(name)s - %(message)s",
-    datefmt='%d-%b-%y %H:%M:%S',
+    datefmt="%d-%b-%y %H:%M:%S",
     handlers=[
         RotatingFileHandler(
             LOG_FILE_NAME,
-            maxBytes=50000000,
-            backupCount=10
+            maxBytes=50_000_000,
+            backupCount=3
         ),
         logging.StreamHandler()
     ]
 )
+
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 
 
