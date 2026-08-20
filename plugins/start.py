@@ -11,6 +11,7 @@ from pyrogram.types import (
 from bot import Bot
 from config import (
     ADMINS,
+    START_PIC,
     CUSTOM_CAPTION,
     DISABLE_CHANNEL_BUTTON,
     FORCE_MSG,
