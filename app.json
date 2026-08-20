@@ -4,3 +4,13 @@
     "size": "eco"
   }
 }
+"FORCE_SUB_CHANNEL2": {
+  "description": "ID of the second force subscription channel, or 0 to disable",
+  "value": "0",
+  "required": false
+},
+"TG_BOT_WORKERS": {
+  "description": "Number of Pyrogram workers",
+  "value": "8",
+  "required": false
+}
