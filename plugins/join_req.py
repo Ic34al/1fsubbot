@@ -187,13 +187,13 @@ if FORCE_SUB_CHANNEL:
                 date=join_req.date
             )
 
-        # If Channel 2 is disabled, Channel 1 request is enough.
-        if not FORCE_SUB_CHANNEL2:
-
-            await send_pending_file(
-                client,
-                user.id
-            )
+        # Check whether both required join requests are now present.
+        # The second request, regardless of which channel it is,
+        # will trigger the pending file delivery.
+        await send_pending_file(
+            client,
+            user.id
+        )
 
 
 # ============================================================
