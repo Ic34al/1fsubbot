@@ -1,12 +1,166 @@
+import asyncio
+
 from pyrogram import Client, filters, enums
 from pyrogram.types import ChatJoinRequest
+from pyrogram.errors import FloodWait
 
 from database.join_reqs import JoinReqs
-from config import ADMINS, FORCE_SUB_CHANNEL
+from database.join_reqs2 import JoinReqs2
+
+from config import (
+    ADMINS,
+    FORCE_SUB_CHANNEL,
+    FORCE_SUB_CHANNEL2,
+    CUSTOM_CAPTION,
+    PROTECT_CONTENT
+)
+
+from helper_func import decode
 
 
 db = JoinReqs()
+db2 = JoinReqs2()
 
+
+async def send_pending_file(client, user_id):
+    """
+    Send the file that the user originally requested.
+
+    A pending join request counts as ForceSub completion.
+    No channel approval or actual membership is required.
+    """
+
+    # Need both request records
+    request1 = await db.get_user(user_id)
+    request2 = await db2.get_user(user_id)
+
+    if FORCE_SUB_CHANNEL and not request1:
+        return False
+
+    if FORCE_SUB_CHANNEL2 and not request2:
+        return False
+
+    # Get requested file code
+    file_code = await db.get_pending_file(user_id)
+
+    if not file_code:
+        return False
+
+    try:
+        data = await decode(file_code)
+        parts = data.split("-")
+
+        if len(parts) < 2 or parts[0] != "get":
+            return False
+
+        channel_id = abs(client.db_channel.id)
+
+        # Single file
+        if len(parts) == 2:
+
+            message_ids = [
+                int(parts[1]) // channel_id
+            ]
+
+        # Batch
+        elif len(parts) == 3:
+
+            first_id = int(parts[1]) // channel_id
+            last_id = int(parts[2]) // channel_id
+
+            if first_id <= 0 or last_id <= 0:
+                return False
+
+            if first_id > last_id:
+                first_id, last_id = last_id, first_id
+
+            # Safety limit
+            if last_id - first_id > 1000:
+                await client.send_message(
+                    user_id,
+                    "❌ This batch link contains too many files."
+                )
+                return False
+
+            message_ids = list(
+                range(first_id, last_id + 1)
+            )
+
+        else:
+            return False
+
+    except Exception:
+        return False
+
+    sent = 0
+
+    # Send requested files
+    for message_id in message_ids:
+
+        try:
+            db_message = await client.get_messages(
+                client.db_channel.id,
+                message_id
+            )
+
+            if not db_message or db_message.empty:
+                continue
+
+            await db_message.copy(
+                chat_id=user_id,
+                caption=CUSTOM_CAPTION or None,
+                protect_content=PROTECT_CONTENT
+            )
+
+            sent += 1
+
+        except FloodWait as e:
+
+            await asyncio.sleep(e.value)
+
+            try:
+                db_message = await client.get_messages(
+                    client.db_channel.id,
+                    message_id
+                )
+
+                if db_message and not db_message.empty:
+
+                    await db_message.copy(
+                        chat_id=user_id,
+                        caption=CUSTOM_CAPTION or None,
+                        protect_content=PROTECT_CONTENT
+                    )
+
+                    sent += 1
+
+            except Exception:
+                continue
+
+        except Exception:
+            continue
+
+    # File successfully delivered
+    if sent > 0:
+
+        await db.clear_pending_file(user_id)
+
+        try:
+            await client.send_message(
+                user_id,
+                "✅ File sent successfully!"
+            )
+        except Exception:
+            pass
+
+        return True
+
+    return False
+
+
+# ============================================================
+# CHANNEL 1 JOIN REQUEST
+# ============================================================
 
 if FORCE_SUB_CHANNEL:
 
@@ -17,16 +171,34 @@ if FORCE_SUB_CHANNEL:
         client,
         join_req: ChatJoinRequest
     ):
-        if not db.isActive():
+
+        user = join_req.from_user
+
+        if not user:
             return
 
-        await db.add_user(
-            user_id=join_req.from_user.id,
-            first_name=join_req.from_user.first_name,
-            username=join_req.from_user.username,
-            date=join_req.date
-        )
+        # Save request
+        if db.isActive():
 
+            await db.add_user(
+                user_id=user.id,
+                first_name=user.first_name,
+                username=user.username,
+                date=join_req.date
+            )
+
+        # If Channel 2 is disabled, Channel 1 request is enough.
+        if not FORCE_SUB_CHANNEL2:
+
+            await send_pending_file(
+                client,
+                user.id
+            )
+
+
+# ============================================================
+# ADMIN COMMANDS
+# ============================================================
 
 @Client.on_message(
     filters.command("total1")
@@ -36,6 +208,7 @@ if FORCE_SUB_CHANNEL:
 async def total_requests(client, message):
 
     if not db.isActive():
+
         return await message.reply_text(
             "❌ Join request database is not configured."
         )
@@ -56,6 +229,7 @@ async def total_requests(client, message):
 async def purge_requests(client, message):
 
     if not db.isActive():
+
         return await message.reply_text(
             "❌ Join request database is not configured."
         )
