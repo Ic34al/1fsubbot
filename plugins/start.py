@@ -18,13 +18,14 @@ from config import (
     FORCE_PIC,
     PROTECT_CONTENT,
     START_MSG
-)
+
 from helper_func import (
     decode,
     is_subscribed1,
     is_subscribed2
 )
 
+from database.join_reqs import JoinReqs
 
 async def send_force_message(client, message):
     buttons = []
@@ -105,7 +106,24 @@ async def start(client, message: Message):
 
     if not user:
         return
+    # ---------------------------------------------------------
+    # Save the requested file before ForceSub is shown.
+    # This allows the join-request handler to know which
+    # file must be delivered after the user sends the requests.
+    # ---------------------------------------------------------
 
+    if len(message.command) > 1:
+
+        try:
+            pending_db = JoinReqs()
+
+            await pending_db.set_pending_file(
+                user.id,
+                message.command[1]
+            )
+
+        except Exception:
+            pass
     # Force subscription checks.
     # Admins can bypass force subscription.
     if user.id not in ADMINS:
