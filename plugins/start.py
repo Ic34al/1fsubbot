@@ -18,6 +18,7 @@ from config import (
     FORCE_PIC,
     PROTECT_CONTENT,
     START_MSG
+)
 
 from helper_func import (
     decode,
