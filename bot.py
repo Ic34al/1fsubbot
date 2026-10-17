@@ -1,3 +1,4 @@
+
 import asyncio
 import base64
 import logging
@@ -5,12 +6,8 @@ import time
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters, idle
-from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import FloodWait
-from pyrogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import (
     API_ID,
@@ -31,8 +28,16 @@ from config import (
     TG_BOT_WORKERS,
 )
 
+# ---------------------------------------------------------
+# LOGGING
+# ---------------------------------------------------------
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------
+# BOT AND DATABASE
+# ---------------------------------------------------------
 
 app = Client(
     "file_share_bot",
@@ -42,7 +47,11 @@ app = Client(
     workers=TG_BOT_WORKERS,
 )
 
-mongo = AsyncIOMotorClient(MONGO_URI)
+mongo = AsyncIOMotorClient(
+    MONGO_URI,
+    serverSelectionTimeoutMS=10000,
+)
+
 database = mongo[DATABASE_NAME]
 
 users = database["users"]
@@ -54,7 +63,27 @@ user_locks = {}
 
 
 # ---------------------------------------------------------
-# GENERAL HELPERS
+# ENCODE / DECODE
+# Compatible with the original get-... file links.
+# ---------------------------------------------------------
+
+async def encode_link(value):
+    return base64.urlsafe_b64encode(
+        value.encode("utf-8")
+    ).decode("utf-8").rstrip("=")
+
+
+async def decode_link(value):
+    value = value.rstrip("=")
+    padding = "=" * (-len(value) % 4)
+
+    return base64.urlsafe_b64decode(
+        (value + padding).encode("utf-8")
+    ).decode("utf-8")
+
+
+# ---------------------------------------------------------
+# USER DATABASE
 # ---------------------------------------------------------
 
 async def save_user(user):
@@ -74,29 +103,22 @@ async def save_user(user):
     )
 
 
-async def decode_link(value):
-    value = value.rstrip("=")
-    padding = "=" * (-len(value) % 4)
-
-    return base64.urlsafe_b64decode(
-        (value + padding).encode()
-    ).decode()
-
-
-async def encode_link(value):
-    return base64.urlsafe_b64encode(
-        value.encode()
-    ).decode().rstrip("=")
-
+# ---------------------------------------------------------
+# FORCE SUBSCRIBE HELPERS
+# A join request counts; actual membership is not checked.
+# ---------------------------------------------------------
 
 async def get_missing_channels(user_id):
     missing = []
 
     for index, (channel_id, _) in enumerate(FSUB_CHANNELS):
-        record = await requests.find_one({
-            "user_id": int(user_id),
-            "channel_id": int(channel_id),
-        })
+        record = await requests.find_one(
+            {
+                "user_id": int(user_id),
+                "channel_id": int(channel_id),
+            },
+            {"_id": 1},
+        )
 
         if not record:
             missing.append(index)
@@ -118,7 +140,7 @@ def make_join_keyboard(missing, start_param=None):
     if start_param:
         rows.append([
             InlineKeyboardButton(
-                "🔄 I Sent All Requests — Retry",
+                "🔄 Check Requests / Get File",
                 url=f"https://t.me/{app.username}?start={start_param}",
             )
         ])
@@ -128,19 +150,18 @@ def make_join_keyboard(missing, start_param=None):
 
 async def show_force_sub(message, start_param=None):
     user = message.from_user
+
     missing = await get_missing_channels(user.id)
 
     if not missing:
         return False
 
-    text = (
-        FORCE_MSG.format(
-            first=user.first_name or "",
-            last=user.last_name or "",
-            username=f"@{user.username}" if user.username else "",
-            mention=user.mention,
-            id=user.id,
-        )
+    caption = FORCE_MSG.format(
+        first=user.first_name or "",
+        last=user.last_name or "",
+        username=f"@{user.username}" if user.username else "",
+        mention=user.mention,
+        id=user.id,
     )
 
     keyboard = make_join_keyboard(missing, start_param)
@@ -149,18 +170,19 @@ async def show_force_sub(message, start_param=None):
         if FORCE_PIC:
             await message.reply_photo(
                 photo=FORCE_PIC,
-                caption=text,
+                caption=caption,
                 reply_markup=keyboard,
             )
         else:
             await message.reply_text(
-                text,
+                caption,
                 reply_markup=keyboard,
             )
     except Exception:
-        log.exception("Could not display force-sub message")
+        log.exception("Could not send force-sub message")
+
         await message.reply_text(
-            text,
+            caption,
             reply_markup=keyboard,
         )
 
@@ -168,8 +190,8 @@ async def show_force_sub(message, start_param=None):
 
 
 # ---------------------------------------------------------
-# FILE LINK DECODING AND DELIVERY
-# Preserves the original get-... link format.
+# FILE DELIVERY
+# Supports original single-file and batch links.
 # ---------------------------------------------------------
 
 async def send_file_code(client, user_id, file_code):
@@ -178,12 +200,12 @@ async def send_file_code(client, user_id, file_code):
         parts = decoded.split("-")
 
         if len(parts) < 2 or parts[0] != "get":
-            return False
+            raise ValueError("Invalid file link")
 
         channel_abs_id = abs(client.db_channel.id)
 
-        if channel_abs_id == 0:
-            return False
+        if not channel_abs_id:
+            raise ValueError("Invalid database channel ID")
 
         if len(parts) == 2:
             first_id = int(parts[1]) // channel_abs_id
@@ -194,10 +216,10 @@ async def send_file_code(client, user_id, file_code):
             last_id = int(parts[2]) // channel_abs_id
 
         else:
-            return False
+            raise ValueError("Invalid link format")
 
         if first_id <= 0 or last_id <= 0:
-            return False
+            raise ValueError("Invalid message IDs")
 
         if first_id > last_id:
             first_id, last_id = last_id, first_id
@@ -205,7 +227,7 @@ async def send_file_code(client, user_id, file_code):
         if last_id - first_id > 1000:
             await client.send_message(
                 user_id,
-                "❌ This batch link contains too many files.",
+                "❌ This batch contains too many files.",
             )
             return False
 
@@ -217,12 +239,12 @@ async def send_file_code(client, user_id, file_code):
 
     for message_id in range(first_id, last_id + 1):
         try:
-            source_message = await client.get_messages(
+            source = await client.get_messages(
                 chat_id=client.db_channel.id,
                 message_ids=message_id,
             )
 
-            if not source_message or source_message.empty:
+            if not source or source.empty:
                 continue
 
             kwargs = {
@@ -233,19 +255,19 @@ async def send_file_code(client, user_id, file_code):
             if CUSTOM_CAPTION:
                 kwargs["caption"] = CUSTOM_CAPTION
 
-            await source_message.copy(**kwargs)
+            await source.copy(**kwargs)
             sent += 1
 
         except FloodWait as exc:
             await asyncio.sleep(exc.value)
 
             try:
-                source_message = await client.get_messages(
+                source = await client.get_messages(
                     chat_id=client.db_channel.id,
                     message_ids=message_id,
                 )
 
-                if source_message and not source_message.empty:
+                if source and not source.empty:
                     kwargs = {
                         "chat_id": user_id,
                         "protect_content": PROTECT_CONTENT,
@@ -254,35 +276,34 @@ async def send_file_code(client, user_id, file_code):
                     if CUSTOM_CAPTION:
                         kwargs["caption"] = CUSTOM_CAPTION
 
-                    await source_message.copy(**kwargs)
+                    await source.copy(**kwargs)
                     sent += 1
 
             except Exception:
-                log.exception(
-                    "Retry failed for source message %s",
-                    message_id,
-                )
+                log.exception("File retry failed: %s", message_id)
 
         except Exception:
-            log.exception(
-                "Could not send source message %s",
-                message_id,
-            )
+            log.exception("File delivery failed: %s", message_id)
 
-    if sent:
-        return True
+    if sent == 0:
+        await client.send_message(
+            user_id,
+            "❌ File not found. The source message may have been deleted.",
+        )
+        return False
 
-    await client.send_message(
-        user_id,
-        "❌ File not found. The source message may have been deleted.",
-    )
-    return False
+    return True
 
+
+# ---------------------------------------------------------
+# SEND PENDING FILE AFTER ALL FOUR JOIN REQUESTS
+# ---------------------------------------------------------
 
 async def deliver_pending_file(client, user_id):
-    # Prevent two near-simultaneous join requests from sending
-    # the same pending file twice.
-    lock = user_locks.setdefault(int(user_id), asyncio.Lock())
+    lock = user_locks.setdefault(
+        int(user_id),
+        asyncio.Lock(),
+    )
 
     async with lock:
         missing = await get_missing_channels(user_id)
@@ -290,9 +311,9 @@ async def deliver_pending_file(client, user_id):
         if missing:
             return False
 
-        pending = await pending_files.find_one({
-            "_id": int(user_id),
-        })
+        pending = await pending_files.find_one(
+            {"_id": int(user_id)}
+        )
 
         if not pending:
             return False
@@ -309,9 +330,9 @@ async def deliver_pending_file(client, user_id):
         )
 
         if success:
-            await pending_files.delete_one({
-                "_id": int(user_id),
-            })
+            await pending_files.delete_one(
+                {"_id": int(user_id)}
+            )
 
             try:
                 await client.send_message(
@@ -325,10 +346,12 @@ async def deliver_pending_file(client, user_id):
 
 
 # ---------------------------------------------------------
-# /START
+# START COMMAND
 # ---------------------------------------------------------
 
-@app.on_message(filters.private & filters.command("start"))
+@app.on_message(
+    filters.private & filters.command("start")
+)
 async def start_handler(client, message):
     user = message.from_user
 
@@ -343,10 +366,9 @@ async def start_handler(client, message):
         else None
     )
 
-    # A file link was opened.
     if start_param:
         if user.id not in ADMINS:
-            # Save the file request before displaying the buttons.
+            # Save the requested link until all requests arrive.
             await pending_files.update_one(
                 {"_id": int(user.id)},
                 {
@@ -364,27 +386,25 @@ async def start_handler(client, message):
                 await show_force_sub(message, start_param)
                 return
 
-                if user.id not in ADMINS:
-            success = await deliver_pending_file(
-                client,
-                user.id,
-            )
-        else:
-            success = await send_file_code(
-                client,
-                user.id,
-                start_param,
-            )
+            # Requests are complete. Deliver and clear pending data.
+            await deliver_pending_file(client, user.id)
+            return
+
+        # Admins bypass force subscription.
+        success = await send_file_code(
+            client,
+            user.id,
+            start_param,
+        )
 
         if not success:
             await message.reply_text(
-                "❌ Unable to send the file. "
-                "Check that the link and source file are valid."
+                "❌ Unable to send this file. Check the link and source."
             )
 
         return
 
-    # Normal /start.
+    # Normal /start
     text = START_MSG.format(
         first=user.first_name or "",
         last=user.last_name or "",
@@ -406,27 +426,27 @@ async def start_handler(client, message):
 
 
 # ---------------------------------------------------------
-# JOIN REQUEST HANDLERS
-# A request counts immediately. The bot does not approve it.
+# JOIN REQUEST HANDLER
 # ---------------------------------------------------------
 
-async def record_join_request(client, join_request, channel_index):
+async def record_join_request(client, join_request, index):
     user = join_request.from_user
 
     if not user:
         return
 
-    channel_id = FSUB_CHANNELS[channel_index][0]
+    channel_id = int(FSUB_CHANNELS[index][0])
 
+    # A request is recorded immediately. The bot does not approve it.
     await requests.update_one(
         {
             "user_id": int(user.id),
-            "channel_id": int(channel_id),
+            "channel_id": channel_id,
         },
         {
             "$set": {
                 "user_id": int(user.id),
-                "channel_id": int(channel_id),
+                "channel_id": channel_id,
                 "first_name": user.first_name or "",
                 "username": user.username or "",
                 "request_date": str(join_request.date),
@@ -436,7 +456,7 @@ async def record_join_request(client, join_request, channel_index):
     )
 
     log.info(
-        "Join request recorded: user=%s channel=%s",
+        "Recorded join request from %s for channel %s",
         user.id,
         channel_id,
     )
@@ -444,33 +464,37 @@ async def record_join_request(client, join_request, channel_index):
     await deliver_pending_file(client, user.id)
 
 
-@app.on_chat_join_request(filters.chat(FSUB_CHANNELS[0][0]))
+@app.on_chat_join_request(
+    filters.chat(FSUB_CHANNELS[0][0])
+)
 async def channel_1_request(client, join_request):
     await record_join_request(client, join_request, 0)
 
 
-@app.on_chat_join_request(filters.chat(FSUB_CHANNELS[1][0]))
+@app.on_chat_join_request(
+    filters.chat(FSUB_CHANNELS[1][0])
+)
 async def channel_2_request(client, join_request):
     await record_join_request(client, join_request, 1)
 
 
-@app.on_chat_join_request(filters.chat(FSUB_CHANNELS[2][0]))
+@app.on_chat_join_request(
+    filters.chat(FSUB_CHANNELS[2][0])
+)
 async def channel_3_request(client, join_request):
     await record_join_request(client, join_request, 2)
 
 
-@app.on_chat_join_request(filters.chat(FSUB_CHANNELS[3][0]))
+@app.on_chat_join_request(
+    filters.chat(FSUB_CHANNELS[3][0])
+)
 async def channel_4_request(client, join_request):
     await record_join_request(client, join_request, 3)
 
 
 # ---------------------------------------------------------
-# ADMIN LINK GENERATION
-#
-# /genlink MESSAGE_ID
-# /batch FIRST_MESSAGE_ID LAST_MESSAGE_ID
-#
-# Message IDs must belong to your database channel.
+# ADMIN: GENERATE SINGLE-FILE LINK
+# Usage: /genlink MESSAGE_ID
 # ---------------------------------------------------------
 
 @app.on_message(
@@ -481,8 +505,7 @@ async def channel_4_request(client, join_request):
 async def genlink_handler(client, message):
     if len(message.command) != 2:
         await message.reply_text(
-            "Usage:\n"
-            "/genlink MESSAGE_ID\n\n"
+            "Usage:\n/genlink MESSAGE_ID\n\n"
             "Use the message ID from your database channel."
         )
         return
@@ -490,13 +513,16 @@ async def genlink_handler(client, message):
     try:
         message_id = int(message.command[1])
 
+        if message_id <= 0:
+            raise ValueError("Message ID must be positive.")
+
         source = await client.get_messages(
             client.db_channel.id,
             message_id,
         )
 
         if not source or source.empty:
-            raise ValueError("Source message not found")
+            raise ValueError("Source message not found.")
 
         encoded = await encode_link(
             f"get-{message_id * abs(client.db_channel.id)}"
@@ -505,7 +531,7 @@ async def genlink_handler(client, message):
         link = f"https://t.me/{client.username}?start={encoded}"
 
         await message.reply_text(
-            f"✅ **File link created**\n\n`{link}`",
+            f"✅ File link created:\n\n{link}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📂 Open File", url=link)]
             ]),
@@ -518,6 +544,11 @@ async def genlink_handler(client, message):
         )
 
 
+# ---------------------------------------------------------
+# ADMIN: GENERATE BATCH LINK
+# Usage: /batch FIRST_MESSAGE_ID LAST_MESSAGE_ID
+# ---------------------------------------------------------
+
 @app.on_message(
     filters.private
     & filters.user(ADMINS)
@@ -526,9 +557,7 @@ async def genlink_handler(client, message):
 async def batch_handler(client, message):
     if len(message.command) != 3:
         await message.reply_text(
-            "Usage:\n"
-            "/batch FIRST_MESSAGE_ID LAST_MESSAGE_ID\n\n"
-            "Both IDs must belong to your database channel."
+            "Usage:\n/batch FIRST_MESSAGE_ID LAST_MESSAGE_ID"
         )
         return
 
@@ -545,15 +574,17 @@ async def batch_handler(client, message):
         if last_id - first_id > 1000:
             raise ValueError("Batch limit is 1001 messages.")
 
+        channel_abs_id = abs(client.db_channel.id)
+
         encoded = await encode_link(
-            f"get-{first_id * abs(client.db_channel.id)}"
-            f"-{last_id * abs(client.db_channel.id)}"
+            f"get-{first_id * channel_abs_id}"
+            f"-{last_id * channel_abs_id}"
         )
 
         link = f"https://t.me/{client.username}?start={encoded}"
 
         await message.reply_text(
-            f"✅ **Batch link created**\n\n`{link}`",
+            f"✅ Batch link created:\n\n{link}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📂 Open Batch", url=link)]
             ]),
@@ -566,13 +597,13 @@ async def batch_handler(client, message):
 
 
 # ---------------------------------------------------------
-# ADMIN BROADCAST
+# ADMIN: BROADCAST TEXT OR COPIED MEDIA
 #
-# /broadcast Your message
-# Or reply to a message/media and send /broadcast
+# /broadcast Hello everyone!
+# Or reply to media with /broadcast
 # ---------------------------------------------------------
 
-async def safe_broadcast_send(client, user_id, message, text):
+async def send_broadcast_message(client, user_id, message, text):
     while True:
         try:
             if message.reply_to_message:
@@ -586,6 +617,7 @@ async def safe_broadcast_send(client, user_id, message, text):
                     chat_id=user_id,
                     text=text,
                 )
+
             return True
 
         except FloodWait as exc:
@@ -611,10 +643,10 @@ async def broadcast_handler(client, message):
 
     if not message.reply_to_message and not text:
         await message.reply_text(
-            "Send text:\n"
+            "Text broadcast:\n"
             "/broadcast Hello everyone!\n\n"
-            "Or reply to a text/photo/video/document and send:\n"
-            "/broadcast"
+            "Media broadcast:\n"
+            "Reply to a message or media and send /broadcast"
         )
         return
 
@@ -629,7 +661,7 @@ async def broadcast_handler(client, message):
     async for user_doc in users.find({}, {"_id": 1}):
         user_id = user_doc["_id"]
 
-        success = await safe_broadcast_send(
+        success = await send_broadcast_message(
             client,
             user_id,
             message,
@@ -641,11 +673,10 @@ async def broadcast_handler(client, message):
         else:
             failed += 1
 
-        # Keep sending at a conservative rate.
         await asyncio.sleep(0.05)
 
     await status.edit_text(
-        "✅ **Broadcast completed**\n\n"
+        "✅ Broadcast completed\n\n"
         f"👥 Total users: {total}\n"
         f"📨 Sent: {sent}\n"
         f"❌ Failed: {failed}"
@@ -653,56 +684,70 @@ async def broadcast_handler(client, message):
 
 
 # ---------------------------------------------------------
-# ADMIN STATS AND HELP
+# ADMIN: STATS
 # ---------------------------------------------------------
 
-@app.on_message(filters.private & filters.command("stats"))
+@app.on_message(
+    filters.private
+    & filters.command("stats")
+)
 async def stats_handler(client, message):
     if message.from_user.id not in ADMINS:
         return
 
     user_count = await users.count_documents({})
-    link_requests = await requests.count_documents({})
+    request_count = await requests.count_documents({})
     pending_count = await pending_files.count_documents({})
 
     await message.reply_text(
-        "📊 **Bot Statistics**\n\n"
+        "📊 Bot Statistics\n\n"
         f"👥 Registered users: {user_count}\n"
-        f"📝 Recorded channel requests: {link_requests}\n"
+        f"📝 Recorded join requests: {request_count}\n"
         f"📁 Pending file requests: {pending_count}"
     )
 
 
-@app.on_message(filters.private & filters.command("help"))
+# ---------------------------------------------------------
+# ADMIN AND USER HELP
+# ---------------------------------------------------------
+
+@app.on_message(
+    filters.private & filters.command("help")
+)
 async def help_handler(client, message):
     await message.reply_text(
-        "📚 **Bot Commands**\n\n"
-        "/start — Start the bot or open a file link\n"
-        "/help — Show commands\n"
-        "/id — Show your Telegram ID\n\n"
-        "**Admin commands**\n"
-        "/genlink MESSAGE_ID — Create a single-file link\n"
-        "/batch FIRST_ID LAST_ID — Create a batch link\n"
-        "/broadcast TEXT — Broadcast a text message\n"
-        "Reply to media with /broadcast to copy it to users\n"
-        "/stats — Show bot statistics"
+        "📚 Bot Commands\n\n"
+        "/start - Start bot or open a file link\n"
+        "/help - Show help\n"
+        "/id - Show your Telegram ID\n\n"
+        "Admin commands:\n"
+        "/genlink MESSAGE_ID - Create a file link\n"
+        "/batch FIRST_ID LAST_ID - Create a batch link\n"
+        "/broadcast TEXT - Broadcast a text message\n"
+        "Reply to media with /broadcast to copy it\n"
+        "/stats - Show bot statistics"
     )
 
 
-@app.on_message(filters.private & filters.command("id"))
+@app.on_message(
+    filters.private & filters.command("id")
+)
 async def id_handler(client, message):
-    await message.reply_text(
-        f"Your Telegram ID: `{message.from_user.id}`"
-    )
+    if message.from_user:
+        await message.reply_text(
+            f"Your Telegram ID: `{message.from_user.id}`"
+        )
 
 
 # ---------------------------------------------------------
-# STARTUP
+# INITIALIZE BOT
 # ---------------------------------------------------------
 
 async def initialize():
+    # Confirm database connectivity.
     await mongo.admin.command("ping")
 
+    # Load the channel containing the source files.
     app.db_channel = await app.get_chat(CHANNEL_ID)
 
     me = await app.get_me()
@@ -710,9 +755,12 @@ async def initialize():
 
     JOIN_LINKS.clear()
 
-    for index, (channel_id, fallback_link) in enumerate(FSUB_CHANNELS, start=1):
+    # Create one join-request invite link per channel.
+    for index, (channel_id, fallback_link) in enumerate(
+        FSUB_CHANNELS,
+        start=1,
+    ):
         try:
-            # Generate a link that triggers ChatJoinRequest.
             invite = await app.create_chat_invite_link(
                 chat_id=channel_id,
                 name=f"File Bot FSUB {index}",
@@ -722,39 +770,44 @@ async def initialize():
             JOIN_LINKS.append(invite.invite_link)
 
             log.info(
-                "Join-request link created for channel %s",
+                "Created join-request link for channel %s",
                 channel_id,
             )
 
         except Exception:
             log.exception(
-                "Could not create a join-request link for channel %s",
+                "Could not create invite link for channel %s",
                 channel_id,
             )
 
             if fallback_link:
                 JOIN_LINKS.append(fallback_link)
                 log.warning(
-                    "Using configured fallback link for channel %s. "
-                    "Ensure it is a join-request link.",
+                    "Using fallback invite link for channel %s",
                     channel_id,
                 )
             else:
                 raise RuntimeError(
-                    f"Cannot create a join-request link for channel "
-                    f"{channel_id}. Make the bot an admin with "
-                    f"invite-user permission, then restart."
+                    f"Cannot create join-request link for channel "
+                    f"{channel_id}. Add the bot as a channel admin "
+                    f"with invite-user permission."
                 )
 
-    log.info("Bot initialized successfully.")
+    log.info("Bot initialization complete.")
 
+
+# ---------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------
 
 async def main():
     await app.start()
 
     try:
         await initialize()
+        log.info("Bot is running.")
         await idle()
+
     finally:
         await app.stop()
         mongo.close()
