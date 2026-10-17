@@ -144,20 +144,24 @@ async def get_missing_channels(user_id):
     return missing
 
 
+
 def make_join_keyboard(missing, start_param=None):
     rows = []
 
-    for index in missing:
-        rows.append([
-            InlineKeyboardButton(
-                f"📩 Request to Join Channel {index + 1}",
-                url=JOIN_LINKS[index],
-            )
-        ])
+    buttons = [
+        InlineKeyboardButton(
+            f"Join Channel {index + 1}",
+            url=JOIN_LINKS[index],
+        )
+        for index in missing
+    ]
+
+    for i in range(0, len(buttons), 2):
+        rows.append(buttons[i:i + 2])
 
     rows.append([
         InlineKeyboardButton(
-            "🔄 Try Again",
+            "Try Again",
             callback_data="check_requests",
         )
     ])
