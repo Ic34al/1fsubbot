@@ -800,18 +800,15 @@ async def initialize():
 # MAIN
 # ---------------------------------------------------------
 
-async def main():
-    await app.start()
 
+async def main():
     try:
         await initialize()
         log.info("Bot is running.")
         await idle()
-
     finally:
-        await app.stop()
         mongo.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    app.run(main())
