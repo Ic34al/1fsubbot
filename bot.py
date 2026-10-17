@@ -364,11 +364,17 @@ async def start_handler(client, message):
                 await show_force_sub(message, start_param)
                 return
 
-        success = await send_file_code(
-            client,
-            user.id,
-            start_param,
-        )
+                if user.id not in ADMINS:
+            success = await deliver_pending_file(
+                client,
+                user.id,
+            )
+        else:
+            success = await send_file_code(
+                client,
+                user.id,
+                start_param,
+            )
 
         if not success:
             await message.reply_text(
