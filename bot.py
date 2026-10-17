@@ -803,9 +803,10 @@ async def initialize():
 
 async def main():
     try:
-        await initialize()
-        log.info("Bot is running.")
-        await idle()
+        async with app:
+            await initialize()
+            log.info("Bot is running.")
+            await idle()
     finally:
         mongo.close()
 
