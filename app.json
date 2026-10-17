@@ -1,63 +1,70 @@
+
 {
   "name": "1fsubbot",
-  "description": "Telegram file sharing bot",
+  "description": "Telegram file-sharing bot",
   "formation": {
-    "web": {
+    "worker": {
       "quantity": 1,
-      "size": "eco"
+      "size": "basic"
     }
   },
   "env": {
-    "TG_BOT_TOKEN": {
-      "description": "Telegram Bot Token",
-      "required": true
-    },
-    "APP_ID": {
+    "API_ID": {
       "description": "Telegram API ID",
       "required": true
     },
     "API_HASH": {
-      "description": "Telegram API Hash",
+      "description": "Telegram API hash",
       "required": true
+    },
+    "BOT_TOKEN": {
+      "description": "Telegram bot token",
+      "required": true
+    },
+    "MONGO_URI": {
+      "description": "MongoDB connection string",
+      "required": true
+    },
+    "DATABASE_NAME": {
+      "description": "MongoDB database name",
+      "value": "FileBot",
+      "required": false
     },
     "OWNER_ID": {
       "description": "Owner Telegram user ID",
       "required": true
     },
     "CHANNEL_ID": {
-      "description": "Database channel ID",
+      "description": "Private file database channel ID",
       "required": true
     },
-    "DATABASE_URL": {
-      "description": "MongoDB connection URL",
+    "FSUB_CHANNEL_1_ID": {
+      "description": "Force-sub channel 1 ID",
       "required": true
     },
-    "DATABASE_NAME": {
-      "description": "MongoDB database name",
-      "value": "filesharexbot",
-      "required": false
+    "FSUB_CHANNEL_2_ID": {
+      "description": "Force-sub channel 2 ID",
+      "required": true
+    },
+    "FSUB_CHANNEL_3_ID": {
+      "description": "Force-sub channel 3 ID",
+      "required": true
+    },
+    "FSUB_CHANNEL_4_ID": {
+      "description": "Force-sub channel 4 ID",
+      "required": true
     },
     "ADMINS": {
-      "description": "Admin Telegram user IDs separated by spaces",
-      "required": true
-    },
-    "FORCE_SUB_CHANNEL": {
-      "description": "First force subscription channel ID, or 0 to disable",
-      "value": "0",
-      "required": false
-    },
-    "FORCE_SUB_CHANNEL2": {
-      "description": "Second force subscription channel ID, or 0 to disable",
-      "value": "0",
+      "description": "Additional admin IDs, comma-separated",
       "required": false
     },
     "TG_BOT_WORKERS": {
-      "description": "Number of Pyrogram workers",
+      "description": "Pyrogram worker count",
       "value": "8",
       "required": false
     },
     "PROTECT_CONTENT": {
-      "description": "Set true to protect copied content",
+      "description": "Protect copied files",
       "value": "False",
       "required": false
     }
