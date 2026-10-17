@@ -4,10 +4,25 @@ import base64
 import logging
 import time
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, filters, idle
-from pyrogram.errors import FloodWait
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import pyrogram.utils as pyrogram_utils
+
+
+def get_peer_type_fixed(peer_id: int) -> str:
+    peer_id = int(peer_id)
+
+    if peer_id > 0:
+        return "user"
+
+    if str(peer_id).startswith("-100"):
+        return "channel"
+
+    if peer_id < 0:
+        return "chat"
+
+    raise ValueError(f"Peer id invalid: {peer_id}")
+
+
+pyrogram_utils.get_peer_type = get_peer_type_fixed
 
 from config import (
     API_ID,
