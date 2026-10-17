@@ -11,12 +11,14 @@ OWNER_ID = int(os.environ["OWNER_ID"])
 
 # Optional: comma-separated Telegram user IDs.
 # Example: ADMINS=123456789,987654321
-ADMINS = {
+
+ADMINS = [
     int(x.strip())
     for x in os.getenv("ADMINS", "").split(",")
     if x.strip().isdigit()
-}
-ADMINS.add(OWNER_ID)
+]
+if OWNER_ID not in ADMINS:
+    ADMINS.append(OWNER_ID)
 
 # Private database channel containing your files.
 # Use the numeric channel ID, usually beginning with -100.
