@@ -1,9 +1,4 @@
-pyrofork==2.3.38
-TgCrypto
-pyromod==1.5
-
-pymongo[srv]
+pyrogram
+tgcrypto
+pymongo
 dnspython
-motor
-
-aiohttp
