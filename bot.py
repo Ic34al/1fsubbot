@@ -394,6 +394,12 @@ async def check_requests_callback(client, query):
             "Verification failed. Please try again.",
             show_alert=True,
         )
+@app.on_message(filters.private & filters.photo)
+async def get_photo_id(client, message):
+    if message.from_user and message.from_user.id in ADMINS:
+        await message.reply_text(
+            f"Photo file_id:\n\n`{message.photo.file_id}`"
+        )
 # ---------------------------------------------------------
 # START COMMAND
 # ---------------------------------------------------------
