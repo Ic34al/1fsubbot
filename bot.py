@@ -130,6 +130,25 @@ async def get_missing_channels(user_id):
     missing = []
 
     for index, (channel_id, _) in enumerate(FSUB_CHANNELS):
+        # First check whether the user is already a member.
+        try:
+            member = await app.get_chat_member(
+                int(channel_id),
+                int(user_id),
+            )
+            status = str(member.status).lower().split(".")[-1]
+
+            if status in ("member", "administrator", "owner"):
+                continue
+
+        except Exception:
+            log.exception(
+                "Could not check membership for user %s in channel %s",
+                user_id,
+                channel_id,
+            )
+
+        # If not a member, accept a recorded join request.
         record = await requests.find_one(
             {
                 "user_id": int(user_id),
@@ -142,7 +161,6 @@ async def get_missing_channels(user_id):
             missing.append(index)
 
     return missing
-
 
 
 def make_join_keyboard(missing, start_param=None):
