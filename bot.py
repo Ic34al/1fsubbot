@@ -551,7 +551,7 @@ async def genlink_handler(client, message):
 
 @app.on_message(
     filters.private
-    & filters.user(*ADMINS)
+    & filters.user(list(ADMINS))
     & filters.command("batch")
 )
 async def batch_handler(client, message):
