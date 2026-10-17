@@ -499,7 +499,7 @@ async def channel_4_request(client, join_request):
 
 @app.on_message(
     filters.private
-    & filters.user(ADMINS)
+    & filters.user(list(ADMINS))
     & filters.command("genlink")
 )
 async def genlink_handler(client, message):
