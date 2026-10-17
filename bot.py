@@ -150,18 +150,17 @@ def make_join_keyboard(missing, start_param=None):
     for index in missing:
         rows.append([
             InlineKeyboardButton(
-                f"📢 Request to Join Channel {index + 1}",
+                f"📩 Request to Join Channel {index + 1}",
                 url=JOIN_LINKS[index],
             )
         ])
 
-    if start_param:
-        rows.append([
-            InlineKeyboardButton(
-                "🔄 Check Requests / Get File",
-                url=f"https://t.me/{app.username}?start={start_param}",
-            )
-        ])
+    rows.append([
+        InlineKeyboardButton(
+            "🔄 Try Again",
+            callback_data="check_requests",
+        )
+    ])
 
     return InlineKeyboardMarkup(rows)
 
@@ -361,8 +360,40 @@ async def deliver_pending_file(client, user_id):
                 pass
 
         return success
+        
+@app.on_callback_query(filters.regex("^check_requests$"))
+async def check_requests_callback(client, query):
+    user_id = query.from_user.id
 
+    try:
+        missing = await get_missing_channels(user_id)
 
+        if missing:
+            await query.answer(
+                "Please request to join all four channels first.",
+                show_alert=True,
+            )
+            await query.message.edit_reply_markup(
+                reply_markup=make_join_keyboard(missing)
+            )
+            return
+
+        success = await deliver_pending_file(client, user_id)
+
+        if success:
+            await query.answer("Verified! Your file is being sent.")
+        else:
+            await query.answer(
+                "No pending file found. Open your file link again.",
+                show_alert=True,
+            )
+
+    except Exception:
+        log.exception("Try Again verification failed")
+        await query.answer(
+            "Verification failed. Please try again.",
+            show_alert=True,
+        )
 # ---------------------------------------------------------
 # START COMMAND
 # ---------------------------------------------------------
@@ -561,6 +592,50 @@ async def genlink_handler(client, message):
             f"❌ Could not create link: {exc}"
         )
 
+
+# AUTO-GENERATE LINKS FOR ADMIN FILES
+
+@app.on_message(filters.private & filters.media)
+async def auto_generate_link(client, message):
+    user = message.from_user
+
+    if not user or user.id not in ADMINS:
+        return
+
+    try:
+        stored = await client.copy_message(
+            chat_id=client.db_channel.id,
+            from_chat_id=message.chat.id,
+            message_id=message.id,
+        )
+
+        if not stored:
+            await message.reply_text("❌ Could not save the file.")
+            return
+
+        encoded = await encode_link(
+            f"get-{stored.id * abs(client.db_channel.id)}"
+        )
+
+        link = f"https://t.me/{client.username}?start={encoded}"
+
+        await message.reply_text(
+            f"✅ Here is your link!\n\n{link}",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "📲 Share URL",
+                        url="https://t.me/share/url?url=" + link,
+                    )
+                ]
+            ]),
+        )
+
+    except Exception:
+        log.exception("Automatic link generation failed")
+        await message.reply_text(
+            "❌ Link generation failed. Check the Heroku logs."
+        )
 
 # ---------------------------------------------------------
 # ADMIN: GENERATE BATCH LINK
