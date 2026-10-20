@@ -129,84 +129,41 @@ async def get_missing_channels(user_id):
     missing = []
 
     for index, (channel_id, _) in enumerate(FSUB_CHANNELS):
-        record = await requests.find_one(
-            {
-                "user_id": int(user_id),
-                "channel_id": int(channel_id),
-            },
-            {"_id": 1},
-        )
+        record = await requests.find_one({
+            "user_id": int(user_id),
+            "channel_id": int(channel_id),
+        })
 
         if not record:
             missing.append(index)
+            continue
+
+        # A pending request counts until membership is confirmed.
+        if not record.get("was_member", False):
+            continue
+
+        # Once the user has been a member, verify they still belong.
+        try:
+            member = await app.get_chat_member(
+                int(channel_id), int(user_id)
+            )
+            status = getattr(member.status, "value", member.status)
+            status = str(status).lower().split(".")[-1]
+
+            if status in ("left", "kicked", "banned"):
+                await requests.delete_one({
+                    "user_id": int(user_id),
+                    "channel_id": int(channel_id),
+                })
+                missing.append(index)
+
+        except Exception:
+            # Fail closed if a previously confirmed membership
+            # cannot be verified. Do not deliver the file.
+            missing.append(index)
 
     return missing
-
-def make_join_keyboard(missing, start_param=None):
-    rows = []
-
-    buttons = [
-        InlineKeyboardButton(
-            f"Join Channel {index + 1}",
-            url=JOIN_LINKS[index],
-        )
-        for index in missing
-    ]
-
-    for i in range(0, len(buttons), 2):
-        rows.append(buttons[i:i + 2])
-
-    rows.append([
-        InlineKeyboardButton(
-            "Try Again",
-            callback_data="check_requests",
-        )
-    ])
-
-    return InlineKeyboardMarkup(rows)
-
-
-async def show_force_sub(message, start_param=None):
-    user = message.from_user
-
-    missing = await get_missing_channels(user.id)
-
-    if not missing:
-        return False
-
-    caption = FORCE_MSG.format(
-        first=user.first_name or "",
-        last=user.last_name or "",
-        username=f"@{user.username}" if user.username else "",
-        mention=user.mention,
-        id=user.id,
-    )
-
-    keyboard = make_join_keyboard(missing, start_param)
-
-    try:
-        if FORCE_PIC:
-            await message.reply_photo(
-                photo=FORCE_PIC,
-                caption=caption,
-                reply_markup=keyboard,
-            )
-        else:
-            await message.reply_text(
-                caption,
-                reply_markup=keyboard,
-            )
-    except Exception:
-        log.exception("Could not send force-sub message")
-
-        await message.reply_text(
-            caption,
-            reply_markup=keyboard,
-        )
-
-    return True
-
-
+    
 # ---------------------------------------------------------
 # FILE DELIVERY
 # Supports original single-file and batch links.
