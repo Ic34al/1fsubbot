@@ -515,45 +515,24 @@ async def record_join_request(client, join_request, index):
 # CLEAR SAVED REQUEST WHEN A MEMBER LEAVES
 # ---------------------------------------------------------
 
-@app.on_chat_member_updated()
-async def membership_updates(client, update):
-    try:
-        chat = getattr(update, "chat", None)
-        member = getattr(update, "new_chat_member", None)
-        user = getattr(member, "user", None) if member else None
+@app.on_chat_join_request(filters.chat(FSUB_CHANNELS[0][0]))
+async def join_request_1(client, join_request):
+    await record_join_request(client, join_request, 0)
 
-        if not chat or not member or not user:
-            return
 
-        channel_id = int(chat.id)
-        configured_ids = {
-            int(cid) for cid, _ in FSUB_CHANNELS
-        }
+@app.on_chat_join_request(filters.chat(FSUB_CHANNELS[1][0]))
+async def join_request_2(client, join_request):
+    await record_join_request(client, join_request, 1)
 
-        status = getattr(
-            member.status, "value", member.status
-        )
-        status = str(status).lower().split(".")[-1]
 
-        log.info(
-            "MEMBERSHIP UPDATE: channel=%s user=%s status=%s",
-            channel_id, user.id, status,
-        )
+@app.on_chat_join_request(filters.chat(FSUB_CHANNELS[2][0]))
+async def join_request_3(client, join_request):
+    await record_join_request(client, join_request, 2)
 
-        if channel_id not in configured_ids:
-            return
 
-        await clear_request_if_left(
-            user.id, channel_id, member
-        )
-
-        if status in (
-            "member", "administrator", "owner", "creator"
-        ):
-            await deliver_pending_file(client, user.id)
-
-    except Exception:
-        log.exception("Membership update handler failed")
+@app.on_chat_join_request(filters.chat(FSUB_CHANNELS[3][0]))
+async def join_request_4(client, join_request):
+    await record_join_request(client, join_request, 3)
 
 # AUTO-GENERATE LINKS FOR ADMIN FILES
 
