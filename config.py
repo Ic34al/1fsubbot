@@ -1,7 +1,6 @@
 import os
 
-API_ID = int(os.environ["API_ID"])
-API_HASH = os.environ["API_HASH"]
+APP_ID = int(os.environ.get("APP_ID", "0"))
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
 MONGO_URI = os.environ["MONGO_URI"]
