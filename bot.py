@@ -54,17 +54,7 @@ class Bot(Client):
 
         self.set_parse_mode(ParseMode.HTML)
         
-        try:
-            self.db_channel = await self.get_chat(CHANNEL_ID)
-            async for _ in self.get_chat_history(CHANNEL_ID, limit=1):
-                break
-        except Exception:
-            LOGGER.exception(
-                "STORAGE CHANNEL FAILED. CHANNEL_ID=%r",
-                CHANNEL_ID,
-            )
-            await super().stop()
-            raise
+                self.db_channel = await self.get_chat(CHANNEL_ID)
 
         for channel in FSUB_CHANNELS:
             channel_id = channel["id"]
