@@ -40,7 +40,7 @@ class Bot(Client):
             sleep_threshold=30,
         )
 
-        self.db_channel = None
+        self.db_channel = await self.get_chat(CHANNEL_ID)
         self.username = None
         self.invite_links = {}
 
