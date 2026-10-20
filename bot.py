@@ -550,20 +550,22 @@ async def channel_4_request(client, join_request):
 # ---------------------------------------------------------
 # CLEAR REQUEST RECORD WHEN A MEMBER LEAVES
 # ---------------------------------------------------------
-
 async def clear_request_if_left(user_id, channel_id, new_member):
     status = getattr(new_member.status, "value", new_member.status)
     status = str(status).lower().split(".")[-1]
 
     if status in ("left", "banned", "kicked"):
-        await requests.delete_one({
+        result = await requests.delete_one({
             "user_id": int(user_id),
             "channel_id": int(channel_id),
         })
+
         log.info(
-            "Cleared request for user %s in channel %s",
+            "LEAVE CHECK: user=%s channel=%s status=%s deleted=%s",
             user_id,
             channel_id,
+            status,
+            result.deleted_count,
         )
 
 
