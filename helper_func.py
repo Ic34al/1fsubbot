@@ -69,18 +69,49 @@ async def channel_is_satisfied(client, user_id, channel_id):
 
 
 
-async def all_channels_satisfied(
-    client,
-    user_id
-):
+
+
+async def all_channels_satisfied(client, user_id):
     for channel in FSUB_CHANNELS:
-        if not await channel_is_satisfied(
-            client,
-            user_id,
-            channel["id"]
-        ):
+        channel_id = channel["id"]
+
+        try:
+            satisfied = await channel_is_satisfied(
+                client, user_id, channel_id
+            )
+            LOG.info(
+                "FSUB CHECK user=%s channel=%s satisfied=%s status=%s",
+                user_id,
+                channel_id,
+                satisfied,
+                await db.get_request_status(user_id, channel_id),
+            )
+
+            if not satisfied:
+                LOG.warning(
+                    "FSUB BLOCKED user=%s channel=%s",
+                    user_id, channel_id
+                )
+                return False
+
+        except Exception:
+            LOG.exception(
+                "FSUB CHECK ERROR user=%s channel=%s",
+                user_id, channel_id
+            )
             return False
 
+    LOG.info("ALL FOUR FSUB CHANNELS PASSED for user=%s", user_id)
+    return True
+
+        except Exception:
+            LOG.exception(
+                "FSUB CHECK ERROR user=%s channel=%s",
+                user_id, channel_id
+            )
+            return False
+
+    LOG.info("ALL FOUR FSUB CHANNELS PASSED for user=%s", user_id)
     return True
 
 
