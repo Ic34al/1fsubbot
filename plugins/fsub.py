@@ -1,3 +1,4 @@
+
 import logging
 
 from pyrogram import Client, filters
@@ -8,6 +9,13 @@ from config import FSUB_CHANNELS, FORCE_MSG
 from database import database as db
 
 LOG = logging.getLogger(__name__)
+
+MEMBER_STATUSES = {
+    ChatMemberStatus.MEMBER,
+    ChatMemberStatus.ADMINISTRATOR,
+    ChatMemberStatus.OWNER,
+    ChatMemberStatus.RESTRICTED,
+}
 
 
 def format_force_message(user):
@@ -21,15 +29,13 @@ def format_force_message(user):
 
 
 async def show_fsub_again(client, user, channel_id):
-    # A user who leaves must no longer count for this channel.
     await db.invalidate_request(user.id, channel_id)
 
     code = await db.get_last_file(user.id)
     if not code:
         LOG.info(
-            "User %s left channel %s; no previous file link found",
+            "No previous file link for user %s",
             user.id,
-            channel_id,
         )
         return
 
@@ -46,14 +52,14 @@ async def show_fsub_again(client, user, channel_id):
         )
 
         LOG.info(
-            "Re-shown FSUB buttons to user %s after leaving %s",
+            "FSUB shown again: user=%s channel=%s",
             user.id,
             channel_id,
         )
 
     except Exception:
         LOG.exception(
-            "Could not re-show FSUB buttons to user %s",
+            "Failed to show FSUB to user %s",
             user.id,
         )
 
@@ -72,8 +78,7 @@ for channel in FSUB_CHANNELS:
         if not user or user.is_bot:
             return
 
-        # Pending approval counts as satisfied.
-        # Delivery happens only when the user taps Try Again.
+        # Save the request immediately. Approval is not required.
         await db.set_request(
             user.id,
             _channel_id,
@@ -81,7 +86,7 @@ for channel in FSUB_CHANNELS:
         )
 
         LOG.info(
-            "Join request recorded: user=%s channel=%s",
+            "FSUB REQUEST SAVED user=%s channel=%s",
             user.id,
             _channel_id,
         )
@@ -92,18 +97,16 @@ for channel in FSUB_CHANNELS:
         update: ChatMemberUpdated,
         _channel_id=channel_id,
     ):
-        member = update.new_chat_member
-        user = member.user if member else None
+        new_member = update.new_chat_member
+        old_member = update.old_chat_member
 
-        if not user or user.is_bot:
+        user = new_member.user if new_member else None
+
+        if not user or user.is_bot or not new_member:
             return
 
-        if member.status in (
-            ChatMemberStatus.MEMBER,
-            ChatMemberStatus.ADMINISTRATOR,
-            ChatMemberStatus.OWNER,
-            ChatMemberStatus.RESTRICTED,
-        ):
+        # Joining or being approved satisfies this channel.
+        if new_member.status in MEMBER_STATUSES:
             await db.set_request(
                 user.id,
                 _channel_id,
@@ -111,15 +114,31 @@ for channel in FSUB_CHANNELS:
             )
 
             LOG.info(
-                "Membership recorded: user=%s channel=%s",
+                "FSUB MEMBER SAVED user=%s channel=%s",
+                user.id,
+                _channel_id,
+            )
+            return
+
+        # Do not erase a pending request just because it was rejected.
+        # Only invalidate when an actual member leaves or gets banned.
+        was_member = (
+            old_member is not None
+            and old_member.status in MEMBER_STATUSES
+        )
+
+        is_out = new_member.status in (
+            ChatMemberStatus.LEFT,
+            ChatMemberStatus.BANNED,
+        )
+
+        if was_member and is_out:
+            LOG.info(
+                "FSUB MEMBER LEFT user=%s channel=%s",
                 user.id,
                 _channel_id,
             )
 
-        elif member.status in (
-            ChatMemberStatus.LEFT,
-            ChatMemberStatus.BANNED,
-        ):
             await show_fsub_again(
                 client,
                 user,
