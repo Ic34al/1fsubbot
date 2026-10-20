@@ -56,49 +56,16 @@ async def is_member(client, user_id, channel_id):
     except Exception:
         return False
 
-
-
-import logging
-
-LOG = logging.getLogger(__name__)
-
-
 async def channel_is_satisfied(client, user_id, channel_id):
     if user_id in ADMINS:
         return True
 
-    # A real member always satisfies this channel.
     if await is_member(client, user_id, channel_id):
         await db.set_request(user_id, channel_id, "member")
         return True
 
-    # Fast path: use the saved pending-request record.
     status = await db.get_request_status(user_id, channel_id)
-    if status == "requested":
-        return True
-
-    # Recovery path: check Telegram directly if the event was missed.
-    try:
-        async for request in client.get_chat_join_requests(
-            chat_id=channel_id
-        ):
-            if request.from_user and request.from_user.id == user_id:
-                await db.set_request(
-                    user_id, channel_id, "requested"
-                )
-                LOG.info(
-                    "Recovered pending request for user %s in channel %s",
-                    user_id, channel_id
-                )
-                return True
-
-    except Exception:
-        LOG.exception(
-            "Could not verify pending requests for channel %s",
-            channel_id
-        )
-
-    return False
+    return status == "requested"
 
 
 
