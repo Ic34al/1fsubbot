@@ -17,17 +17,6 @@ from config import (
 
 from database import database as db
 
-from pyrogram import utils
-
-def fixed_get_peer_type(peer_id: int) -> str:
-    peer_id = str(peer_id)
-
-    if not peer_id.startswith("-"):
-        return "user"
-    if peer_id.startswith("-100"):
-        return "channel"
-    return "chat"
-
 utils.get_peer_type = fixed_get_peer_type
 
 logging.basicConfig(
