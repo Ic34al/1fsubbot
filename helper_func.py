@@ -7,7 +7,7 @@ from pyrogram.errors import FloodWait, UserNotParticipant
 
 from config import ADMINS, FSUB_CHANNELS
 from database import database as db
-
+LOG = logging.getLogger(__name__)
 
 MEMBER_STATUSES = {
     ChatMemberStatus.OWNER,
