@@ -1,4 +1,3 @@
-from pyromod import listen
 import logging
 from datetime import datetime, timezone
 
