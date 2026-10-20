@@ -548,64 +548,63 @@ async def channel_4_request(client, join_request):
     await record_join_request(client, join_request, 3)
 
 # ---------------------------------------------------------
-# CLEAR REQUEST RECORD WHEN A MEMBER LEAVES
+# CLEAR SAVED REQUEST WHEN A MEMBER LEAVES
 # ---------------------------------------------------------
+
 async def clear_request_if_left(user_id, channel_id, new_member):
     status = getattr(new_member.status, "value", new_member.status)
     status = str(status).lower().split(".")[-1]
 
-    if status in ("left", "banned", "kicked"):
-        result = await requests.delete_one({
-            "user_id": int(user_id),
-            "channel_id": int(channel_id),
-        })
+    if status not in ("left", "banned", "kicked"):
+        return
 
-        log.info(
-            "LEAVE CHECK: user=%s channel=%s status=%s deleted=%s",
-            user_id,
-            channel_id,
-            status,
-            result.deleted_count,
-        )
+    result = await requests.delete_one({
+        "user_id": int(user_id),
+        "channel_id": int(channel_id),
+    })
+
+    log.info(
+        "LEAVE CHECK: user=%s channel=%s status=%s deleted=%s",
+        user_id,
+        channel_id,
+        status,
+        result.deleted_count,
+    )
 
 
 @app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[0][0]))
 async def channel_1_membership(client, update):
-    if update.new_chat_member and update.new_chat_member.user:
+    member = update.new_chat_member
+    if member and member.user:
         await clear_request_if_left(
-            update.new_chat_member.user.id,
-            FSUB_CHANNELS[0][0],
-            update.new_chat_member,
+            member.user.id, FSUB_CHANNELS[0][0], member
         )
 
 
 @app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[1][0]))
 async def channel_2_membership(client, update):
-    if update.new_chat_member and update.new_chat_member.user:
+    member = update.new_chat_member
+    if member and member.user:
         await clear_request_if_left(
-            update.new_chat_member.user.id,
-            FSUB_CHANNELS[1][0],
-            update.new_chat_member,
+            member.user.id, FSUB_CHANNELS[1][0], member
         )
 
 
 @app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[2][0]))
 async def channel_3_membership(client, update):
-    if update.new_chat_member and update.new_chat_member.user:
+    member = update.new_chat_member
+    if member and member.user:
         await clear_request_if_left(
-            update.new_chat_member.user.id,
-            FSUB_CHANNELS[2][0],
-            update.new_chat_member,
+            member.user.id, FSUB_CHANNELS[2][0], member
         )
 
 
 @app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[3][0]))
 async def channel_4_membership(client, update):
-    if update.new_chat_member and update.new_chat_member.user:
+    member = update.new_chat_member
+    if member and member.user:
         await clear_request_if_left(
-            update.new_chat_member.user.id,
-            FSUB_CHANNELS[3][0],
-            update.new_chat_member,
+            member.user.id, FSUB_CHANNELS[3][0], member
         )
 
 
