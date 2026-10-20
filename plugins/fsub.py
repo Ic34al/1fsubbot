@@ -1,4 +1,3 @@
-
 import logging
 
 from pyrogram import Client, filters
@@ -7,21 +6,56 @@ from pyrogram.enums import ChatMemberStatus
 
 from config import FSUB_CHANNELS, FORCE_MSG
 from database import database as db
-from helper_func import all_channels_satisfied
 
 LOG = logging.getLogger(__name__)
 
 
-async def try_deliver_pending(client, user_id):
-    code = await db.get_pending_file(user_id)
+def format_force_message(user):
+    return FORCE_MSG.format(
+        first=user.first_name or "",
+        last=user.last_name or "",
+        username=f"@{user.username}" if user.username else "",
+        mention=user.mention,
+        id=user.id,
+    )
+
+
+async def show_fsub_again(client, user, channel_id):
+    # A user who leaves must no longer count for this channel.
+    await db.invalidate_request(user.id, channel_id)
+
+    code = await db.get_last_file(user.id)
     if not code:
+        LOG.info(
+            "User %s left channel %s; no previous file link found",
+            user.id,
+            channel_id,
+        )
         return
 
-    if not await all_channels_satisfied(client, user_id):
-        return
+    await db.set_pending_file(user.id, code)
 
-    from plugins.start import deliver_file
-    await deliver_file(client, user_id, code)
+    try:
+        from plugins.start import force_markup
+
+        await client.send_message(
+            chat_id=user.id,
+            text=format_force_message(user),
+            reply_markup=force_markup(client, code),
+            disable_web_page_preview=True,
+        )
+
+        LOG.info(
+            "Re-shown FSUB buttons to user %s after leaving %s",
+            user.id,
+            channel_id,
+        )
+
+    except Exception:
+        LOG.exception(
+            "Could not re-show FSUB buttons to user %s",
+            user.id,
+        )
 
 
 for channel in FSUB_CHANNELS:
@@ -29,26 +63,34 @@ for channel in FSUB_CHANNELS:
 
     @Client.on_chat_join_request(filters.chat(channel_id))
     async def on_join_request(
-        client, request: ChatJoinRequest, _channel_id=channel_id
+        client,
+        request: ChatJoinRequest,
+        _channel_id=channel_id,
     ):
         user = request.from_user
-        if not user:
+
+        if not user or user.is_bot:
             return
 
+        # Pending approval counts as satisfied.
+        # Delivery happens only when the user taps Try Again.
         await db.set_request(
-            user.id, _channel_id, "requested"
+            user.id,
+            _channel_id,
+            "requested",
         )
 
         LOG.info(
-            "Recorded request from %s for %s",
-            user.id, _channel_id
+            "Join request recorded: user=%s channel=%s",
+            user.id,
+            _channel_id,
         )
-
-        await try_deliver_pending(client, user.id)
 
     @Client.on_chat_member_updated(filters.chat(channel_id))
     async def on_member_update(
-        client, update: ChatMemberUpdated, _channel_id=channel_id
+        client,
+        update: ChatMemberUpdated,
+        _channel_id=channel_id,
     ):
         member = update.new_chat_member
         user = member.user if member else None
@@ -63,46 +105,23 @@ for channel in FSUB_CHANNELS:
             ChatMemberStatus.RESTRICTED,
         ):
             await db.set_request(
-                user.id, _channel_id, "member"
+                user.id,
+                _channel_id,
+                "member",
             )
-            await try_deliver_pending(client, user.id)
+
+            LOG.info(
+                "Membership recorded: user=%s channel=%s",
+                user.id,
+                _channel_id,
+            )
 
         elif member.status in (
             ChatMemberStatus.LEFT,
             ChatMemberStatus.BANNED,
         ):
-            await db.invalidate_request(
-                user.id, _channel_id
+            await show_fsub_again(
+                client,
+                user,
+                _channel_id,
             )
-
-            code = await db.get_last_file(user.id)
-            if not code:
-                return
-
-            await db.set_pending_file(user.id, code)
-
-            try:
-                from plugins.start import force_markup
-
-                text = FORCE_MSG.format(
-                    first=user.first_name or "",
-                    last=user.last_name or "",
-                    username=(
-                        f"@{user.username}"
-                        if user.username else ""
-                    ),
-                    mention=user.mention,
-                    id=user.id,
-                )
-
-                await client.send_message(
-                    user.id,
-                    text,
-                    reply_markup=force_markup(client, code),
-                    disable_web_page_preview=True,
-                )
-            except Exception:
-                LOG.exception(
-                    "Could not send re-subscription prompt to %s",
-                    user.id
-                )
