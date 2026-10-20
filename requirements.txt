@@ -5,4 +5,3 @@ pymongo==4.13.2
 dnspython==2.7.0
 certifi
 aiohttp
-pyromod
