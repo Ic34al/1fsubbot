@@ -125,42 +125,77 @@ async def save_user(user):
 # A join request counts until a member-leave event clears it.
 # ---------------------------------------------------------
 
+
 async def get_missing_channels(user_id):
     missing = []
 
     for index, (channel_id, _) in enumerate(FSUB_CHANNELS):
+        channel_id = int(channel_id)
+        user_id = int(user_id)
+
         record = await requests.find_one({
-            "user_id": int(user_id),
-            "channel_id": int(channel_id),
+            "user_id": user_id,
+            "channel_id": channel_id,
         })
 
         if not record:
             missing.append(index)
             continue
 
-        # A pending request counts until membership is confirmed.
-        if not record.get("was_member", False):
-            continue
-
-        # Once the user has been a member, verify they still belong.
         try:
             member = await app.get_chat_member(
-                int(channel_id), int(user_id)
+                channel_id, user_id
             )
-            status = getattr(member.status, "value", member.status)
+            status = getattr(
+                member.status, "value", member.status
+            )
             status = str(status).lower().split(".")[-1]
 
-            if status in ("left", "kicked", "banned"):
+            if status in ("member", "administrator", "owner", "creator"):
+                await requests.update_one(
+                    {
+                        "user_id": user_id,
+                        "channel_id": channel_id,
+                    },
+                    {"$set": {"was_member": True}},
+                )
+                continue
+
+            if status in ("kicked", "banned"):
                 await requests.delete_one({
-                    "user_id": int(user_id),
-                    "channel_id": int(channel_id),
+                    "user_id": user_id,
+                    "channel_id": channel_id,
                 })
                 missing.append(index)
+                continue
+
+            # A previously confirmed member who is now left
+            # must request to join again.
+            if record.get("was_member", False):
+                await requests.delete_one({
+                    "user_id": user_id,
+                    "channel_id": channel_id,
+                })
+                missing.append(index)
+                continue
+
+            # A user who has only requested to join can count
+            # while their request is pending.
+            if status == "left":
+                continue
+
+            missing.append(index)
 
         except Exception:
-            # Fail closed if a previously confirmed membership
-            # cannot be verified. Do not deliver the file.
-            missing.append(index)
+            log.exception(
+                "Membership verification failed: user=%s channel=%s",
+                user_id, channel_id,
+            )
+
+            # Fail closed for previously confirmed members.
+            # Pending requests remain valid if verification fails.
+            if record.get("was_member", False):
+                missing.append(index)
 
     return missing
     
@@ -480,73 +515,45 @@ async def record_join_request(client, join_request, index):
 # CLEAR SAVED REQUEST WHEN A MEMBER LEAVES
 # ---------------------------------------------------------
 
-async def clear_request_if_left(user_id, channel_id, new_member):
-    status = getattr(new_member.status, "value", new_member.status)
-    status = str(status).lower().split(".")[-1]
+@app.on_chat_member_updated()
+async def membership_updates(client, update):
+    try:
+        chat = getattr(update, "chat", None)
+        member = getattr(update, "new_chat_member", None)
+        user = getattr(member, "user", None) if member else None
 
-    user_id = int(user_id)
-    channel_id = int(channel_id)
+        if not chat or not member or not user:
+            return
 
-    if status in ("member", "administrator", "owner"):
-        await requests.update_one(
-            {
-                "user_id": user_id,
-                "channel_id": channel_id,
-            },
-            {"$set": {"was_member": True}},
+        channel_id = int(chat.id)
+        configured_ids = {
+            int(cid) for cid, _ in FSUB_CHANNELS
+        }
+
+        status = getattr(
+            member.status, "value", member.status
         )
-        log.info(
-            "MEMBER CHECK: user=%s channel=%s status=%s",
-            user_id, channel_id, status,
-        )
-        return
-
-    if status in ("left", "banned", "kicked"):
-        result = await requests.delete_one({
-            "user_id": user_id,
-            "channel_id": channel_id,
-        })
+        status = str(status).lower().split(".")[-1]
 
         log.info(
-            "LEAVE CHECK: user=%s channel=%s status=%s deleted=%s",
-            user_id, channel_id, status, result.deleted_count,
+            "MEMBERSHIP UPDATE: channel=%s user=%s status=%s",
+            channel_id, user.id, status,
         )
 
-@app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[0][0]))
-async def channel_1_membership(client, update):
-    member = update.new_chat_member
-    if member and member.user:
+        if channel_id not in configured_ids:
+            return
+
         await clear_request_if_left(
-            member.user.id, FSUB_CHANNELS[0][0], member
+            user.id, channel_id, member
         )
 
+        if status in (
+            "member", "administrator", "owner", "creator"
+        ):
+            await deliver_pending_file(client, user.id)
 
-@app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[1][0]))
-async def channel_2_membership(client, update):
-    member = update.new_chat_member
-    if member and member.user:
-        await clear_request_if_left(
-            member.user.id, FSUB_CHANNELS[1][0], member
-        )
-
-
-@app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[2][0]))
-async def channel_3_membership(client, update):
-    member = update.new_chat_member
-    if member and member.user:
-        await clear_request_if_left(
-            member.user.id, FSUB_CHANNELS[2][0], member
-        )
-
-
-@app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[3][0]))
-async def channel_4_membership(client, update):
-    member = update.new_chat_member
-    if member and member.user:
-        await clear_request_if_left(
-            member.user.id, FSUB_CHANNELS[3][0], member
-        )
-
+    except Exception:
+        log.exception("Membership update handler failed")
 
 # AUTO-GENERATE LINKS FOR ADMIN FILES
 
