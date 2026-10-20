@@ -17,8 +17,6 @@ from config import (
 
 from database import database as db
 
-utils.get_peer_type = fixed_get_peer_type
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | "
