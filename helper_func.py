@@ -50,7 +50,7 @@ async def is_member(client, user_id, channel_id):
 
         return member.status in MEMBER_STATUSES
 
-            except UserNotParticipant:
+    except UserNotParticipant:
         return False
 
     except Exception:
