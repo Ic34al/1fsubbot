@@ -198,7 +198,53 @@ async def get_missing_channels(user_id):
                 missing.append(index)
 
     return missing
-    
+
+def make_join_keyboard(missing):
+    buttons = []
+
+    for index in missing:
+        if index >= len(JOIN_LINKS):
+            continue
+
+        buttons.append([
+            InlineKeyboardButton(
+                f"📢 Join Channel {index + 1}",
+                url=JOIN_LINKS[index],
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(
+            "🔄 Try Again",
+            callback_data="check_requests",
+        )
+    ])
+
+    return InlineKeyboardMarkup(buttons)
+
+
+async def show_force_sub(message, file_code=None):
+    missing = await get_missing_channels(message.from_user.id)
+
+    text = FORCE_MSG or (
+        "Please request to join all four channels, "
+        "then press Try Again."
+    )
+
+    keyboard = make_join_keyboard(missing)
+
+    if FORCE_PIC:
+        await message.reply_photo(
+            photo=FORCE_PIC,
+            caption=text,
+            reply_markup=keyboard,
+        )
+    else:
+        await message.reply_text(
+            text,
+            reply_markup=keyboard,
+        )
+
 # ---------------------------------------------------------
 # FILE DELIVERY
 # Supports original single-file and batch links.
