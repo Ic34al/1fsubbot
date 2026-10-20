@@ -54,7 +54,7 @@ class Bot(Client):
 
         self.set_parse_mode(ParseMode.HTML)
         
-                self.db_channel = await self.get_chat(CHANNEL_ID)
+       self.db_channel = await self.get_chat(CHANNEL_ID)
 
         for channel in FSUB_CHANNELS:
             channel_id = channel["id"]
