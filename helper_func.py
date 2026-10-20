@@ -104,7 +104,6 @@ async def all_channels_satisfied(client, user_id):
     LOG.info("ALL FOUR FSUB CHANNELS PASSED for user=%s", user_id)
     return True
 
-        except Exception:
             LOG.exception(
                 "FSUB CHECK ERROR user=%s channel=%s",
                 user_id, channel_id
@@ -112,7 +111,7 @@ async def all_channels_satisfied(client, user_id):
             return False
 
     LOG.info("ALL FOUR FSUB CHANNELS PASSED for user=%s", user_id)
-    return True
+
 
 
 async def get_message_id(client, message):
