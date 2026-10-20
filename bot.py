@@ -120,25 +120,43 @@ async def save_user(user):
         upsert=True,
     )
 
-
 # ---------------------------------------------------------
 # FORCE SUBSCRIBE HELPERS
-# A join request counts; actual membership is not checked.
+# Check CURRENT membership in all four channels.
+# Old or pending join requests do not count as membership.
 # ---------------------------------------------------------
 
 async def get_missing_channels(user_id):
     missing = []
 
     for index, (channel_id, _) in enumerate(FSUB_CHANNELS):
-        record = await requests.find_one(
-            {
-                "user_id": int(user_id),
-                "channel_id": int(channel_id),
-            },
-            {"_id": 1},
-        )
+        try:
+            member = await app.get_chat_member(
+                chat_id=int(channel_id),
+                user_id=int(user_id),
+            )
 
-        if not record:
+            status = getattr(member.status, "value", member.status)
+            status = str(status).lower()
+
+            is_member = (
+                status in ("member", "administrator", "owner", "creator")
+                or (
+                    status == "restricted"
+                    and bool(getattr(member, "is_member", False))
+                )
+            )
+
+            if not is_member:
+                missing.append(index)
+
+        except Exception:
+            log.exception(
+                "Could not verify user %s in force-sub channel %s",
+                user_id,
+                channel_id,
+            )
+            # If membership cannot be verified, do not send the file.
             missing.append(index)
 
     return missing
