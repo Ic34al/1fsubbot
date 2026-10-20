@@ -53,6 +53,7 @@ class Bot(Client):
 
         self.set_parse_mode(ParseMode.HTML)
         
+        try:
             self.db_channel = await self.get_chat(CHANNEL_ID)
             async for _ in self.get_chat_history(CHANNEL_ID, limit=1):
                 break
@@ -63,11 +64,6 @@ class Bot(Client):
             )
             await super().stop()
             raise
-
-        LOGGER.info(
-            "Connected to database channel %s",
-            self.db_channel.id
-        )
 
         for channel in FSUB_CHANNELS:
             channel_id = channel["id"]
