@@ -119,44 +119,25 @@ async def save_user(user):
         },
         upsert=True,
     )
-
+    
 # ---------------------------------------------------------
 # FORCE SUBSCRIBE HELPERS
-# Check CURRENT membership in all four channels.
-# Old or pending join requests do not count as membership.
+# A join request counts until a member-leave event clears it.
 # ---------------------------------------------------------
 
 async def get_missing_channels(user_id):
     missing = []
 
     for index, (channel_id, _) in enumerate(FSUB_CHANNELS):
-        try:
-            member = await app.get_chat_member(
-                chat_id=int(channel_id),
-                user_id=int(user_id),
-            )
+        record = await requests.find_one(
+            {
+                "user_id": int(user_id),
+                "channel_id": int(channel_id),
+            },
+            {"_id": 1},
+        )
 
-            status = getattr(member.status, "value", member.status)
-            status = str(status).lower()
-
-            is_member = (
-                status in ("member", "administrator", "owner", "creator")
-                or (
-                    status == "restricted"
-                    and bool(getattr(member, "is_member", False))
-                )
-            )
-
-            if not is_member:
-                missing.append(index)
-
-        except Exception:
-            log.exception(
-                "Could not verify user %s in force-sub channel %s",
-                user_id,
-                channel_id,
-            )
-            # If membership cannot be verified, do not send the file.
+        if not record:
             missing.append(index)
 
     return missing
@@ -566,56 +547,63 @@ async def channel_3_request(client, join_request):
 async def channel_4_request(client, join_request):
     await record_join_request(client, join_request, 3)
 
-
 # ---------------------------------------------------------
-# ADMIN: GENERATE SINGLE-FILE LINK
-# Usage: /genlink MESSAGE_ID
+# CLEAR REQUEST RECORD WHEN A MEMBER LEAVES
 # ---------------------------------------------------------
 
-@app.on_message(
-    filters.private
-    & filters.user(list(ADMINS))
-    & filters.command("genlink")
-)
-async def genlink_handler(client, message):
-    if len(message.command) != 2:
-        await message.reply_text(
-            "Usage:\n/genlink MESSAGE_ID\n\n"
-            "Use the message ID from your database channel."
-        )
-        return
+async def clear_request_if_left(user_id, channel_id, new_member):
+    status = getattr(new_member.status, "value", new_member.status)
+    status = str(status).lower().split(".")[-1]
 
-    try:
-        message_id = int(message.command[1])
-
-        if message_id <= 0:
-            raise ValueError("Message ID must be positive.")
-
-        source = await client.get_messages(
-            client.db_channel.id,
-            message_id,
+    if status in ("left", "banned", "kicked"):
+        await requests.delete_one({
+            "user_id": int(user_id),
+            "channel_id": int(channel_id),
+        })
+        log.info(
+            "Cleared request for user %s in channel %s",
+            user_id,
+            channel_id,
         )
 
-        if not source or source.empty:
-            raise ValueError("Source message not found.")
 
-        encoded = await encode_link(
-            f"get-{message_id * abs(client.db_channel.id)}"
+@app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[0][0]))
+async def channel_1_membership(client, update):
+    if update.new_chat_member and update.new_chat_member.user:
+        await clear_request_if_left(
+            update.new_chat_member.user.id,
+            FSUB_CHANNELS[0][0],
+            update.new_chat_member,
         )
 
-        link = f"https://t.me/{client.username}?start={encoded}"
 
-        await message.reply_text(
-            f"✅ File link created:\n\n{link}",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📂 Open File", url=link)]
-            ]),
+@app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[1][0]))
+async def channel_2_membership(client, update):
+    if update.new_chat_member and update.new_chat_member.user:
+        await clear_request_if_left(
+            update.new_chat_member.user.id,
+            FSUB_CHANNELS[1][0],
+            update.new_chat_member,
         )
 
-    except Exception as exc:
-        log.exception("Link generation failed")
-        await message.reply_text(
-            f"❌ Could not create link: {exc}"
+
+@app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[2][0]))
+async def channel_3_membership(client, update):
+    if update.new_chat_member and update.new_chat_member.user:
+        await clear_request_if_left(
+            update.new_chat_member.user.id,
+            FSUB_CHANNELS[2][0],
+            update.new_chat_member,
+        )
+
+
+@app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[3][0]))
+async def channel_4_membership(client, update):
+    if update.new_chat_member and update.new_chat_member.user:
+        await clear_request_if_left(
+            update.new_chat_member.user.id,
+            FSUB_CHANNELS[3][0],
+            update.new_chat_member,
         )
 
 
