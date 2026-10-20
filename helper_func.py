@@ -50,10 +50,15 @@ async def is_member(client, user_id, channel_id):
 
         return member.status in MEMBER_STATUSES
 
-    except UserNotParticipant:
+        except UserNotParticipant:
         return False
 
     except Exception:
+        LOG.exception(
+            "MEMBERSHIP CHECK FAILED: user=%s channel=%s",
+            user_id,
+            channel_id
+        )
         return False
 
 async def channel_is_satisfied(client, user_id, channel_id):
