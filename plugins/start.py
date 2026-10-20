@@ -1,274 +1,411 @@
 import asyncio
+import logging
 
 from pyrogram import filters
-from pyrogram.errors import FloodWait
 from pyrogram.types import (
-    InlineKeyboardButton,
+    Message,
     InlineKeyboardMarkup,
-    Message
+    InlineKeyboardButton,
+    CallbackQuery,
 )
+from pyrogram.errors import FloodWait
 
 from bot import Bot
 from config import (
     ADMINS,
+    START_MSG,
     START_PIC,
-    CUSTOM_CAPTION,
-    DISABLE_CHANNEL_BUTTON,
     FORCE_MSG,
     FORCE_PIC,
+    CUSTOM_CAPTION,
     PROTECT_CONTENT,
-    START_MSG
+    FSUB_CHANNELS,
 )
-
+from database import database as db
 from helper_func import (
     decode,
-    is_subscribed1,
-    is_subscribed2
+    all_channels_satisfied,
+    get_messages,
 )
 
-from database.join_reqs import JoinReqs
 
-async def send_force_message(client, message):
-    buttons = []
+LOG = logging.getLogger(__name__)
 
-    if getattr(client, "invitelink", None):
-        buttons.append([
+MAX_BATCH = 1000
+
+
+def parse_decoded_file_code(client, decoded):
+    parts = decoded.split("-")
+
+    if len(parts) not in (2, 3):
+        return None
+
+    if parts[0] != "get":
+        return None
+
+    try:
+        divisor = abs(client.db_channel.id)
+
+        first = int(parts[1]) // divisor
+
+        last = (
+            int(parts[2]) // divisor
+            if len(parts) == 3
+            else first
+        )
+
+    except (ValueError, ZeroDivisionError):
+        return None
+
+    if first <= 0 or last <= 0:
+        return None
+
+    if first > last:
+        first, last = last, first
+
+    if last - first >= MAX_BATCH:
+        return None
+
+    return list(range(first, last + 1))
+
+
+def force_markup(client, code):
+    rows = []
+    links = []
+
+    for channel in FSUB_CHANNELS:
+        link = (
+            client.invite_links.get(channel["id"])
+            or channel["link"]
+        )
+
+        links.append((
+            channel["number"],
+            link
+        ))
+
+    for i in range(0, len(links), 2):
+        pair = links[i:i + 2]
+
+        rows.append([
             InlineKeyboardButton(
-                "ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ 1",
-                url=client.invitelink
+                f"↗ Join Channel {number}",
+                url=link
             )
+            for number, link in pair
         ])
 
-    if getattr(client, "invitelink2", None):
-        buttons.append([
-            InlineKeyboardButton(
-                "ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ 2",
-                url=client.invitelink2
-            )
-        ])
+    rows.append([
+        InlineKeyboardButton(
+            "🔄 Try Again",
+            callback_data=f"check:{code}"
+        )
+    ])
 
-    if not buttons:
-        return False
+    return InlineKeyboardMarkup(rows)
 
-    start_param = (
-        message.command[1]
-        if len(message.command) > 1
-        else None
-    )
 
-    if start_param and getattr(client, "username", None):
-        buttons.append([
-            InlineKeyboardButton(
-                "🔄 Try Again",
-                url=f"https://t.me/{client.username}?start={start_param}"
-            )
-        ])
-
+async def show_fsub(client, message, code):
     user = message.from_user
 
     caption = FORCE_MSG.format(
         first=user.first_name or "",
         last=user.last_name or "",
-        username=f"@{user.username}" if user.username else "",
+        username=(
+            f"@{user.username}"
+            if user.username
+            else ""
+        ),
         mention=user.mention,
-        id=user.id
+        id=user.id,
     )
 
-    markup = InlineKeyboardMarkup(buttons)
+    markup = force_markup(client, code)
 
     try:
         if FORCE_PIC:
             await message.reply_photo(
-                photo=FORCE_PIC,
+                FORCE_PIC,
                 caption=caption,
                 reply_markup=markup
             )
         else:
             await message.reply_text(
                 caption,
-                reply_markup=markup
+                reply_markup=markup,
+                disable_web_page_preview=True
             )
+
     except Exception:
         await message.reply_text(
             caption,
-            reply_markup=markup
+            reply_markup=markup,
+            disable_web_page_preview=True
         )
 
-    return True
 
-
-@Bot.on_message(
-    filters.command("start")
-    & filters.private
-)
-async def start(client, message: Message):
-
-    user = message.from_user
-
-    if not user:
-        return
-    # ---------------------------------------------------------
-    # Save the requested file before ForceSub is shown.
-    # This allows the join-request handler to know which
-    # file must be delivered after the user sends the requests.
-    # ---------------------------------------------------------
-
-    if len(message.command) > 1:
-
-        try:
-            pending_db = JoinReqs()
-
-            await pending_db.set_pending_file(
-                user.id,
-                message.command[1]
-            )
-
-        except Exception:
-            pass
-    # Force subscription checks.
-    # Admins can bypass force subscription.
-    if user.id not in ADMINS:
-
-        is_subscribed_channel1 = await is_subscribed1(
-    None,
-    client,
-    message
-)
-
-        if not is_subscribed_channel1:
-            await send_force_message(client, message)
-            return
-
-        is_subscribed_channel2 = await is_subscribed2(
-    None,
-    client,
-    message
-)
-
-        if not is_subscribed_channel2:
-            await send_force_message(client, message)
-            return
-
-    # Normal /start
-    if len(message.command) == 1:
-
-        try:
-            await message.reply_photo(
-                photo=START_PIC,
-                caption=START_MSG.format(
-                    first=user.first_name or "",
-                    last=user.last_name or "",
-                    username=f"@{user.username}" if user.username else "",
-                    mention=user.mention,
-                    id=user.id
-                )
-            )
-        except Exception:
-            await message.reply_text(
-                START_MSG.format(
-                    first=user.first_name or "",
-                    last=user.last_name or "",
-                    username=f"@{user.username}" if user.username else "",
-                    mention=user.mention,
-                    id=user.id
-                )
-            )
-
-        return
-
-    # Decode file-sharing link
+async def deliver_file(client, user_id: int, code: str):
     try:
-        data = await decode(message.command[1])
-        parts = data.split("-")
-
-        if len(parts) < 2 or parts[0] != "get":
-            raise ValueError("Invalid link")
-
-        channel_id = abs(client.db_channel.id)
-
-        # Single file link
-        if len(parts) == 2:
-            message_ids = [
-                int(parts[1]) // channel_id
-            ]
-
-        # Batch link
-        elif len(parts) == 3:
-            first_id = int(parts[1]) // channel_id
-            last_id = int(parts[2]) // channel_id
-
-            if first_id <= 0 or last_id <= 0:
-                raise ValueError("Invalid message ID")
-
-            if first_id > last_id:
-                first_id, last_id = last_id, first_id
-
-            # Safety limit
-            if last_id - first_id > 1000:
-                await message.reply_text(
-                    "❌ This batch link contains too many files."
-                )
-                return
-
-            message_ids = list(
-                range(first_id, last_id + 1)
-            )
-
-        else:
-            raise ValueError("Invalid link")
+        decoded = await decode(code)
 
     except Exception:
-        await message.reply_text(
-            "❌ This link is invalid or has expired."
+        await client.send_message(
+            user_id,
+            "❌ This file link is invalid."
         )
-        return
+        return False
+
+    message_ids = parse_decoded_file_code(
+        client,
+        decoded
+    )
+
+    if not message_ids:
+        await client.send_message(
+            user_id,
+            "❌ This link is invalid or the batch "
+            "is too large."
+        )
+        return False
 
     sent = 0
 
-    # Send files
-    for message_id in message_ids:
+    messages = await get_messages(
+        client,
+        message_ids
+    )
 
+    for msg in messages:
         try:
-            db_message = await client.get_messages(
-                client.db_channel.id,
-                message_id
-            )
-
-            if not db_message or db_message.empty:
-                continue
-
-            await db_message.copy(
-                chat_id=message.chat.id,
+            await msg.copy(
+                chat_id=user_id,
                 caption=CUSTOM_CAPTION or None,
-                protect_content=PROTECT_CONTENT
+                protect_content=PROTECT_CONTENT,
             )
 
             sent += 1
 
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
+        except FloodWait as exc:
+            await asyncio.sleep(exc.value)
 
             try:
-                db_message = await client.get_messages(
-                    client.db_channel.id,
-                    message_id
+                await msg.copy(
+                    chat_id=user_id,
+                    caption=CUSTOM_CAPTION or None,
+                    protect_content=PROTECT_CONTENT,
                 )
 
-                if db_message and not db_message.empty:
-                    await db_message.copy(
-                        chat_id=message.chat.id,
-                        caption=CUSTOM_CAPTION or None,
-                        protect_content=PROTECT_CONTENT
-                    )
-                    sent += 1
+                sent += 1
 
             except Exception:
-                continue
+                LOG.exception(
+                    "Could not send message %s to user %s",
+                    msg.id,
+                    user_id
+                )
 
         except Exception:
-            continue
+            LOG.exception(
+                "Could not send message %s to user %s",
+                msg.id,
+                user_id
+            )
 
-    if sent == 0:
-        await message.reply_text(
-            "❌ File not found. The link may be invalid or the source file was deleted."
+    if sent:
+        await db.clear_pending_file(user_id)
+        return True
+
+    await client.send_message(
+        user_id,
+        "❌ No files could be delivered. "
+        "The source post may have been deleted."
+    )
+
+    return False
+
+
+async def process_file_request(
+    client,
+    message,
+    code
+):
+    user = message.from_user
+
+    if not user:
+        return
+
+    await db.set_pending_file(
+        user.id,
+        code
+    )
+
+    if (
+        user.id not in ADMINS
+        and not await all_channels_satisfied(
+            client,
+            user.id
         )
+    ):
+        await show_fsub(
+            client,
+            message,
+            code
+        )
+        return
+
+    await deliver_file(
+        client,
+        user.id,
+        code
+    )
+
+
+@Bot.on_message(
+    filters.private
+    & filters.command("start")
+)
+async def start(
+    client: Bot,
+    message: Message
+):
+    user = message.from_user
+
+    if not user:
+        return
+
+    if len(message.command) == 1:
+        text = START_MSG.format(
+            first=user.first_name or "",
+            last=user.last_name or "",
+            username=(
+                f"@{user.username}"
+                if user.username
+                else ""
+            ),
+            mention=user.mention,
+            id=user.id,
+        )
+
+        try:
+            if START_PIC:
+                await message.reply_photo(
+                    START_PIC,
+                    caption=text
+                )
+            else:
+                await message.reply_text(text)
+
+        except Exception:
+            await message.reply_text(text)
+
+        return
+
+    await process_file_request(
+        client,
+        message,
+        message.command[1]
+    )
+
+
+@Bot.on_callback_query(
+    filters.regex(r"^check:")
+)
+async def check_again(
+    client: Bot,
+    query: CallbackQuery
+):
+    code = query.data.split(":", 1)[1]
+    user = query.from_user
+
+    await query.answer(
+        "Checking your channel requests…"
+    )
+
+    await db.set_pending_file(
+        user.id,
+        code
+    )
+
+    if (
+        user.id not in ADMINS
+        and not await all_channels_satisfied(
+            client,
+            user.id
+        )
+    ):
+        try:
+            await query.message.edit_reply_markup(
+                force_markup(client, code)
+            )
+        except Exception:
+            pass
+
+        return
+
+    await deliver_file(
+        client,
+        user.id,
+        code
+    )
+
+
+@Bot.on_message(
+    filters.private
+    & filters.user(list(ADMINS))
+    & filters.command("users")
+)
+async def users(
+    client: Bot,
+    message: Message
+):
+    await message.reply_text(
+        f"👥 Total users: {await db.count_users()}"
+    )
+
+
+@Bot.on_message(
+    filters.private
+    & filters.user(list(ADMINS))
+    & filters.command("broadcast")
+)
+async def broadcast(
+    client: Bot,
+    message: Message
+):
+    if not message.reply_to_message:
+        return await message.reply_text(
+            "Reply to the message you want to "
+            "broadcast with /broadcast."
+        )
+
+    ids = await db.get_all_user_ids()
+
+    sent = 0
+    failed = 0
+
+    status = await message.reply_text(
+        "Broadcast started…"
+    )
+
+    for uid in ids:
+        try:
+            await message.reply_to_message.copy(uid)
+            sent += 1
+
+        except FloodWait as exc:
+            await asyncio.sleep(exc.value)
+
+            try:
+                await message.reply_to_message.copy(uid)
+                sent += 1
+            except Exception:
+                failed += 1
+
+        except Exception:
+            failed += 1
+
+    await status.edit_text(
+        f"✅ Broadcast finished.\n"
+        f"Sent: {sent}\n"
+        f"Failed: {failed}"
+    )
