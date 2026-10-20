@@ -1,78 +1,156 @@
-from aiohttp import web
-from plugins import web_server
+import logging
+from datetime import datetime, timezone
 
-import pyromod.listen
+from aiohttp import web
 from pyrogram import Client
 from pyrogram.enums import ParseMode
-import sys
-from datetime import datetime
 
-from config import API_HASH, APP_ID, LOGGER, TG_BOT_TOKEN, TG_BOT_WORKERS, FORCE_SUB_CHANNEL, CHANNEL_ID, PORT
+from config import (
+    API_HASH,
+    APP_ID,
+    BOT_TOKEN,
+    CHANNEL_ID,
+    FSUB_CHANNELS,
+    TG_BOT_WORKERS,
+    PORT,
+)
+
+from database import database as db
 
 
-ascii_art = """
-░█████╗░░█████╗░██████╗░███████╗██╗░░██╗██████╗░░█████╗░████████╗███████╗
-██╔══██╗██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝██╔══██╗██╔══██╗╚══██╔══╝╚════██║
-██║░░╚═╝██║░░██║██║░░██║█████╗░░░╚███╔╝░██████╦╝██║░░██║░░░██║░░░░░███╔═╝
-██║░░██╗██║░░██║██║░░██║██╔══╝░░░██╔██╗░██╔══██╗██║░░██║░░░██║░░░██╔══╝░░
-╚█████╔╝╚█████╔╝██████╔╝███████╗██╔╝╚██╗██████╦╝╚█████╔╝░░░██║░░░███████╗
-░╚════╝░░╚════╝░╚═════╝░╚══════╝╚═╝░░╚═╝╚═════╝░░╚════╝░░░░╚═╝░░░╚══════╝
-"""
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | "
+           "%(name)s | %(message)s",
+)
+
+LOGGER = logging.getLogger("FourChannelFSUB")
+
 
 class Bot(Client):
+
     def __init__(self):
         super().__init__(
-            name="Bot",
-            api_hash=API_HASH,
+            name="four_channel_fsub_bot",
             api_id=APP_ID,
-            plugins={
-                "root": "plugins"
-            },
+            api_hash=API_HASH,
+            bot_token=BOT_TOKEN,
             workers=TG_BOT_WORKERS,
-            bot_token=TG_BOT_TOKEN
+            plugins={"root": "plugins"},
+            sleep_threshold=30,
         )
-        self.LOGGER = LOGGER
+
+        self.db_channel = None
+        self.username = None
+        self.invite_links = {}
+
+        self.uptime = datetime.now(timezone.utc)
+        self.web_runner = None
 
     async def start(self):
         await super().start()
-        usr_bot_me = await self.get_me()
-        self.uptime = datetime.now()
 
-        if FORCE_SUB_CHANNEL:
-            try:
-                link = (await self.get_chat(FORCE_SUB_CHANNEL)).invite_link
-                if not link:
-                    await self.export_chat_invite_link(FORCE_SUB_CHANNEL)
-                    link = (await self.get_chat(FORCE_SUB_CHANNEL)).invite_link
-                self.invitelink = link
-            except Exception as a:
-                self.LOGGER(__name__).warning(a)
-                self.LOGGER(__name__).warning("Bot can't Export Invite link from Force Sub Channel!")
-                self.LOGGER(__name__).warning(f"Please Double check the FORCE_SUB_CHANNEL value and Make sure Bot is Admin in channel with Invite Users via Link Permission, Current Force Sub Channel Value: {FORCE_SUB_CHANNEL}")
-                self.LOGGER(__name__).info("\nBot Stopped. Join https://t.me/CodeXBotzSupport for support")
-                sys.exit()
-        try:
-            db_channel = await self.get_chat(CHANNEL_ID)
-            self.db_channel = db_channel
-            test = await self.send_message(chat_id = db_channel.id, text = "Test Message")
-            await test.delete()
-        except Exception as e:
-            self.LOGGER(__name__).warning(e)
-            self.LOGGER(__name__).warning(f"Make Sure bot is Admin in DB Channel, and Double check the CHANNEL_ID Value, Current Value {CHANNEL_ID}")
-            self.LOGGER(__name__).info("\nBot Stopped. Join https://t.me/CodeXBotzSupport for support")
-            sys.exit()
+        me = await self.get_me()
+        self.username = me.username
 
         self.set_parse_mode(ParseMode.HTML)
-        self.LOGGER(__name__).info(f"Bot Running..!\n\nCreated by \nhttps://t.me/CodeXBotz")
-        print(ascii_art)
-        print("""Welcome to CodeXBotz File Sharing Bot""")
-        self.username = usr_bot_me.username
-        #web-response
-        app = web.AppRunner(await web_server())
-        await app.setup()
-        bind_address = "0.0.0.0"
-        await web.TCPSite(app, bind_address, PORT).start()
+
+        self.db_channel = await self.get_chat(CHANNEL_ID)
+
+        try:
+            async for _ in self.get_chat_history(
+                CHANNEL_ID,
+                limit=1
+            ):
+                break
+
+        except Exception as exc:
+            LOGGER.exception(
+                "Cannot read private database channel: %s",
+                exc
+            )
+
+            await super().stop()
+
+            raise RuntimeError(
+                "Check the bot's access to CHANNEL_ID."
+            ) from exc
+
+        LOGGER.info(
+            "Connected to database channel %s",
+            self.db_channel.id
+        )
+
+        for channel in FSUB_CHANNELS:
+            channel_id = channel["id"]
+            link = channel["link"]
+
+            if not link:
+                try:
+                    invite = await self.create_chat_invite_link(
+                        chat_id=channel_id,
+                        creates_join_request=True,
+                        name=(
+                            "File bot request channel "
+                            f"{channel['number']}"
+                        ),
+                    )
+
+                    link = invite.invite_link
+
+                except Exception as exc:
+                    LOGGER.exception(
+                        "Cannot create request link for %s",
+                        channel_id
+                    )
+
+                    await super().stop()
+
+                    raise RuntimeError(
+                        f"Check admin permissions for "
+                        f"FSUB_CHANNEL_{channel['number']}_ID."
+                    ) from exc
+
+            self.invite_links[channel_id] = link
+
+        app = web.Application()
+
+        async def health(_request):
+            return web.json_response({
+                "status": "ok",
+                "bot": self.username
+            })
+
+        app.router.add_get("/", health)
+        app.router.add_get("/health", health)
+
+        self.web_runner = web.AppRunner(app)
+
+        await self.web_runner.setup()
+
+        await web.TCPSite(
+            self.web_runner,
+            "0.0.0.0",
+            PORT
+        ).start()
+
+        await db.ping()
+
+        LOGGER.info(
+            "Bot @%s started with four FSUB channels.",
+            self.username
+        )
 
     async def stop(self, *args):
+        if self.web_runner:
+            await self.web_runner.cleanup()
+            self.web_runner = None
+
+        await db.close()
+
         await super().stop()
-        self.LOGGER(__name__).info("Bot stopped.")
+
+        LOGGER.info("Bot stopped.")
+
+
+app = Bot()
