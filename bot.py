@@ -450,7 +450,6 @@ async def record_join_request(client, join_request, index):
 
     channel_id = int(FSUB_CHANNELS[index][0])
 
-    # A request is recorded immediately. The bot does not approve it.
     await requests.update_one(
         {
             "user_id": int(user.id),
@@ -463,6 +462,7 @@ async def record_join_request(client, join_request, index):
                 "first_name": user.first_name or "",
                 "username": user.username or "",
                 "request_date": str(join_request.date),
+                "was_member": False,
             }
         },
         upsert=True,
@@ -476,34 +476,6 @@ async def record_join_request(client, join_request, index):
 
     await deliver_pending_file(client, user.id)
 
-
-@app.on_chat_join_request(
-    filters.chat(FSUB_CHANNELS[0][0])
-)
-async def channel_1_request(client, join_request):
-    await record_join_request(client, join_request, 0)
-
-
-@app.on_chat_join_request(
-    filters.chat(FSUB_CHANNELS[1][0])
-)
-async def channel_2_request(client, join_request):
-    await record_join_request(client, join_request, 1)
-
-
-@app.on_chat_join_request(
-    filters.chat(FSUB_CHANNELS[2][0])
-)
-async def channel_3_request(client, join_request):
-    await record_join_request(client, join_request, 2)
-
-
-@app.on_chat_join_request(
-    filters.chat(FSUB_CHANNELS[3][0])
-)
-async def channel_4_request(client, join_request):
-    await record_join_request(client, join_request, 3)
-
 # ---------------------------------------------------------
 # CLEAR SAVED REQUEST WHEN A MEMBER LEAVES
 # ---------------------------------------------------------
@@ -512,22 +484,33 @@ async def clear_request_if_left(user_id, channel_id, new_member):
     status = getattr(new_member.status, "value", new_member.status)
     status = str(status).lower().split(".")[-1]
 
-    if status not in ("left", "banned", "kicked"):
+    user_id = int(user_id)
+    channel_id = int(channel_id)
+
+    if status in ("member", "administrator", "owner"):
+        await requests.update_one(
+            {
+                "user_id": user_id,
+                "channel_id": channel_id,
+            },
+            {"$set": {"was_member": True}},
+        )
+        log.info(
+            "MEMBER CHECK: user=%s channel=%s status=%s",
+            user_id, channel_id, status,
+        )
         return
 
-    result = await requests.delete_one({
-        "user_id": int(user_id),
-        "channel_id": int(channel_id),
-    })
+    if status in ("left", "banned", "kicked"):
+        result = await requests.delete_one({
+            "user_id": user_id,
+            "channel_id": channel_id,
+        })
 
-    log.info(
-        "LEAVE CHECK: user=%s channel=%s status=%s deleted=%s",
-        user_id,
-        channel_id,
-        status,
-        result.deleted_count,
-    )
-
+        log.info(
+            "LEAVE CHECK: user=%s channel=%s status=%s deleted=%s",
+            user_id, channel_id, status, result.deleted_count,
+        )
 
 @app.on_chat_member_updated(filters.chat(FSUB_CHANNELS[0][0]))
 async def channel_1_membership(client, update):
