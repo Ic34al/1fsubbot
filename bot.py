@@ -53,26 +53,17 @@ class Bot(Client):
 
         self.set_parse_mode(ParseMode.HTML)
 
-        self.db_channel = await self.get_chat(CHANNEL_ID)
-
-        try:
-            async for _ in self.get_chat_history(
-                CHANNEL_ID,
-                limit=1
-            ):
+                try:
+            self.db_channel = await self.get_chat(CHANNEL_ID)
+            async for _ in self.get_chat_history(CHANNEL_ID, limit=1):
                 break
-
-        except Exception as exc:
+        except Exception:
             LOGGER.exception(
-                "Cannot read private database channel: %s",
-                exc
+                "STORAGE CHANNEL FAILED. CHANNEL_ID=%r",
+                CHANNEL_ID,
             )
-
             await super().stop()
-
-            raise RuntimeError(
-                "Check the bot's access to CHANNEL_ID."
-            ) from exc
+            raise
 
         LOGGER.info(
             "Connected to database channel %s",
