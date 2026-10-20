@@ -534,6 +534,74 @@ async def join_request_3(client, join_request):
 async def join_request_4(client, join_request):
     await record_join_request(client, join_request, 3)
 
+
+# ---------------------------------------------------------
+# TRACK REAL MEMBERSHIP AND CHANNEL LEAVES
+# ---------------------------------------------------------
+async def clear_request_if_left(user_id, channel_id, new_member):
+    status = getattr(new_member.status, "value", new_member.status)
+    status = str(status).lower().split(".")[-1]
+
+    user_id = int(user_id)
+    channel_id = int(channel_id)
+
+    if status in ("member", "administrator", "owner", "creator"):
+        await requests.update_one(
+            {"user_id": user_id, "channel_id": channel_id},
+            {"$set": {"was_member": True}},
+        )
+        log.info(
+            "MEMBER CONFIRMED: user=%s channel=%s",
+            user_id, channel_id,
+        )
+
+    elif status in ("left", "kicked", "banned"):
+        result = await requests.delete_one({
+            "user_id": user_id,
+            "channel_id": channel_id,
+        })
+        log.info(
+            "MEMBER LEFT: user=%s channel=%s deleted=%s",
+            user_id, channel_id, result.deleted_count,
+        )
+
+
+@app.on_chat_member_updated()
+async def membership_updates(client, update):
+    try:
+        chat = getattr(update, "chat", None)
+        member = getattr(update, "new_chat_member", None)
+        user = getattr(member, "user", None) if member else None
+
+        if not chat or not member or not user:
+            return
+
+        channel_id = int(chat.id)
+        configured_ids = {
+            int(cid) for cid, _ in FSUB_CHANNELS
+        }
+
+        if channel_id not in configured_ids:
+            return
+
+        status = getattr(member.status, "value", member.status)
+        status = str(status).lower().split(".")[-1]
+
+        log.info(
+            "MEMBERSHIP UPDATE: channel=%s user=%s status=%s",
+            channel_id, user.id, status,
+        )
+
+        await clear_request_if_left(
+            user.id, channel_id, member
+        )
+
+        if status in ("member", "administrator", "owner", "creator"):
+            await deliver_pending_file(client, user.id)
+
+    except Exception:
+        log.exception("Membership update handler failed")
+
 # AUTO-GENERATE LINKS FOR ADMIN FILES
 
 @app.on_message(filters.private & filters.media)
