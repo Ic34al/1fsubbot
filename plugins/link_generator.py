@@ -1,3 +1,7 @@
+
+import asyncio
+import logging
+
 from pyrogram import filters
 from pyrogram.types import (
     Message,
@@ -9,141 +13,95 @@ from bot import Bot
 from config import ADMINS
 from helper_func import encode, get_message_id
 
+LOG = logging.getLogger(__name__)
 
-async def ask_for_db_message(
-    client,
-    message,
-    prompt
-):
-    while True:
-        answer = await client.ask(
-            chat_id=message.from_user.id,
-            text=prompt,
-            filters=(
-                filters.forwarded
-                | (filters.text & ~filters.forwarded)
-            ),
-            timeout=120,
-        )
-
-        msg_id = await get_message_id(
-            client,
-            answer
-        )
-
-        if msg_id:
-            return msg_id
-
-        await answer.reply_text(
-            "❌ That message or link is not from "
-            "the configured private database channel. "
-            "Try again."
-        )
+# Temporary admin prompts, without pyromod.
+pending = {}
 
 
 def link_markup(link):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "🔁 Share URL",
-                url=(
-                    "https://telegram.me/share/url"
-                    f"?url={link}"
-                ),
-            )
-        ]
-    ])
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "🔁 Share URL",
+            url=f"https://telegram.me/share/url?url={link}",
+        )
+    ]])
+
+
+async def finish_link(client, message, ids):
+    divisor = abs(client.db_channel.id)
+    encoded = "get-" + "-".join(
+        str(msg_id * divisor) for msg_id in ids
+    )
+    code = await encode(encoded)
+    link = f"https://t.me/{client.username}?start={code}"
+
+    await message.reply_text(
+        f"<b>File link created:</b>\n{link}",
+        reply_markup=link_markup(link),
+        disable_web_page_preview=True,
+    )
 
 
 @Bot.on_message(
     filters.private
     & filters.user(list(ADMINS))
-    & filters.command("genlink")
+    & filters.command(["genlink", "batch"])
 )
-async def genlink(
-    client: Bot,
-    message: Message
-):
-    try:
-        msg_id = await ask_for_db_message(
-            client,
-            message,
-            "Forward a post from your private database "
-            "channel, or send its Telegram post link."
-        )
+async def begin_link(client: Bot, message: Message):
+    mode = message.command[0].lower()
+    pending[message.from_user.id] = {
+        "mode": mode,
+        "ids": [],
+        "chat_id": message.chat.id,
+    }
 
-        code = await encode(
-            f"get-{msg_id * abs(client.db_channel.id)}"
-        )
-
-        link = (
-            f"https://t.me/{client.username}"
-            f"?start={code}"
-        )
-
-        await message.reply_text(
-            f"<b>File link created:</b>\n{link}",
-            reply_markup=link_markup(link),
-            disable_web_page_preview=True,
-        )
-
-    except TimeoutError:
-        await message.reply_text(
-            "⌛ Timed out. Send /genlink to try again."
-        )
-
-    except Exception as exc:
-        await message.reply_text(
-            f"❌ Could not create link: {exc}"
-        )
+    prompt = (
+        "Forward the FIRST database post, then the LAST post."
+        if mode == "batch"
+        else "Forward the database post or send its post link."
+    )
+    await message.reply_text(prompt)
 
 
 @Bot.on_message(
     filters.private
     & filters.user(list(ADMINS))
-    & filters.command("batch")
+    & ~filters.command(["genlink", "batch"])
 )
-async def batch(
-    client: Bot,
-    message: Message
-):
+async def receive_link_input(client: Bot, message: Message):
+    state = pending.get(message.from_user.id)
+    if not state or message.chat.id != state["chat_id"]:
+        return
+
     try:
-        first = await ask_for_db_message(
-            client,
-            message,
-            "Forward the FIRST post from your private "
-            "database channel, or send its post link."
-        )
+        msg_id = await get_message_id(client, message)
+    except Exception:
+        LOG.exception("Could not identify database post")
+        msg_id = None
 
-        last = await ask_for_db_message(
-            client,
-            message,
-            "Now forward the LAST post from your private "
-            "database channel, or send its post link."
-        )
-
-        code = await encode(
-            f"get-{first * abs(client.db_channel.id)}"
-            f"-{last * abs(client.db_channel.id)}"
-        )
-
-        link = (
-            f"https://t.me/{client.username}"
-            f"?start={code}"
-        )
-
+    if not msg_id:
         await message.reply_text(
-            f"<b>Batch link created:</b>\n{link}",
-            reply_markup=link_markup(link),
-            disable_web_page_preview=True,
+            "❌ Couldn't identify that database post. "
+            "Forward the post from your storage channel or send its post link."
         )
+        return
 
-    except TimeoutError:
-        await message.reply_text(
-            "⌛ Timed out. Send /batch to try again."
-        )
+    state["ids"].append(msg_id)
 
-    except Exception as exc:
+    if state["mode"] == "batch" and len(state["ids"]) == 1:
+        await message.reply_text("Now forward the LAST database post.")
+        return
+
+    ids = state["ids"][:]
+    pending.pop(message.from_user.id, None)
+
+    try:
+        if len(ids) == 2 and ids[0] > ids[1]:
+            ids.reverse()
+        await finish_link(client, message, ids)
+    except Exception:
+        LOG.exception("Link generation failed")
         await message.reply_text(
-            f"❌ Could not create batch link: {exc}"
+            "❌ Link generation failed. Check Heroku logs."
         )
