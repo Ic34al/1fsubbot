@@ -98,7 +98,7 @@ def force_markup(client, code):
     rows.append([
         InlineKeyboardButton(
             "🔄 Try Again",
-            callback_data=f"check:{code}"
+            url=f"https://t.me/{client.username}?start={code}"
         )
     ])
 
