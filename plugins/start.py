@@ -347,33 +347,15 @@ async def check_again(
             )
             return
 
-        bot_username = getattr(client, "username", None)
-
-        if not bot_username:
-            me = await client.get_me()
-            bot_username = me.username
-
-        if not bot_username:
-            await query.answer(
-                "Could not create the file link.",
-                show_alert=True
-            )
-            return
-
-        get_file_markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(
-                    "📥 GET FILE",
-                    url=f"https://t.me/{bot_username}?start={code}"
-                )
-            ]
-        ])
-
-        await query.answer(
-            "Verified! Tap GET FILE, then press Start."
+                await query.answer(
+            "Subscription verified! Sending your files..."
         )
-        await query.message.edit_reply_markup(
-            get_file_markup
+
+        await process_file_request(
+            client,
+            None,
+            code,
+            user_id=user.id
         )
 
     except Exception:
