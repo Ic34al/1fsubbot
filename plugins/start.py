@@ -398,9 +398,10 @@ async def check_again(
         )
 
         # Send the file using the original /start code.
-        await client.send_message(
+                success = await deliver_file(
+            client,
             user.id,
-            f"/start {code}"
+            code
         )
 
         if success:
