@@ -237,40 +237,30 @@ async def deliver_file(client, user_id: int, code: str):
     )
     return False
 
+
 async def process_file_request(
     client,
     message,
-    code
+    code,
+    user_id=None
 ):
-    user = message.from_user
+    user = message.from_user if message else None
+    uid = user_id or (user.id if user else None)
 
-    if not user:
+    if not uid:
         return
 
-    await db.set_pending_file(
-        user.id,
-        code
-    )
+    await db.set_pending_file(uid, code)
 
     if (
-        user.id not in ADMINS
-        and not await all_channels_satisfied(
-            client,
-            user.id
-        )
+        uid not in ADMINS
+        and not await all_channels_satisfied(client, uid)
     ):
-        await show_fsub(
-            client,
-            message,
-            code
-        )
+        if message and user:
+            await show_fsub(client, message, code)
         return
 
-    await deliver_file(
-        client,
-        user.id,
-        code
-    )
+    await deliver_file(client, uid, code)
 
 
 @Bot.on_message(
@@ -367,11 +357,12 @@ async def check_again(
             return
 
            # Rerun the original file-request flow.
-        await process_file_request(
-            client,
-            query.message,
-            code
-        )
+await process_file_request(
+    client,
+    None,
+    code,
+    user_id=user.id
+)
 
     except Exception:
         LOG.exception(
