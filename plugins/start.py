@@ -366,10 +366,10 @@ async def check_again(
             )
             return
 
-        # Resume delivery of the exact original file request.
-        await deliver_file(
+           # Rerun the original file-request flow.
+        await process_file_request(
             client,
-            user.id,
+            query.message,
             code
         )
 
