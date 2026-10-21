@@ -356,13 +356,14 @@ async def check_again(
             )
             return
 
-           # Rerun the original file-request flow.
-await process_file_request(
-    client,
-    None,
-    code,
-    user_id=user.id
-)
+
+        # Rerun the original file-request flow.
+        await process_file_request(
+            client,
+            None,
+            code,
+            user_id=user.id
+        )
 
     except Exception:
         LOG.exception(
