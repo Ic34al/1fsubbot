@@ -320,8 +320,6 @@ async def start(
     )
 
 
-
-
 @Bot.on_callback_query(
     filters.regex(r"^check:")
 )
@@ -331,13 +329,6 @@ async def check_again(
 ):
     user = query.from_user
     data = query.data or ""
-
-    if not user:
-        await query.answer(
-            "Unable to identify user.",
-            show_alert=True
-        )
-        return
 
     code = data.split(":", 1)[1] if ":" in data else ""
 
@@ -356,10 +347,29 @@ async def check_again(
     )
 
     try:
-        # Re-run the original file-request flow using its original code.
-        await process_file_request(
+        await db.set_pending_file(user.id, code)
+
+        # Check all required channels for the actual clicking user.
+        if (
+            user.id not in ADMINS
+            and not await all_channels_satisfied(
+                client,
+                user.id
+            )
+        ):
+            await query.message.edit_reply_markup(
+                force_markup(client, code)
+            )
+            await query.answer(
+                "Please join all required channels first.",
+                show_alert=True
+            )
+            return
+
+        # Resume delivery of the exact original file request.
+        await deliver_file(
             client,
-            query.message,
+            user.id,
             code
         )
 
@@ -372,7 +382,7 @@ async def check_again(
         try:
             await client.send_message(
                 user.id,
-                "❌ Something went wrong. Please tap Try Again."
+                "❌ Could not complete your request. Please try again."
             )
         except Exception:
             LOG.exception(
