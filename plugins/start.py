@@ -95,10 +95,11 @@ def force_markup(client, code):
             for number, link in pair
         ])
 
+
     rows.append([
         InlineKeyboardButton(
             "🔄 Try Again",
-            callback_data=f"check:{code}"
+            url=f"https://t.me/{client.username}?start={code}"
         )
     ])
 
