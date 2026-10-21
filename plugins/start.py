@@ -348,15 +348,18 @@ async def check_again(
             return
 
 
-        await query.answer(
-            "Subscription verified! Sending your files..."
-        )
+        bot_username = getattr(client, "username", None)
+        if not bot_username:
+            me = await client.get_me()
+            bot_username = me.username
 
-        await process_file_request(
-            client,
-            None,
-            code,
-            user_id=user.id
+        await query.answer("Subscription verified!")
+
+        await client.send_message(
+            user.id,
+            "✅ Subscription verified!\n\n"
+            "Tap the link below and press Start to get your file:\n"
+            f"https://t.me/{bot_username}?start={code}"
         )
 
     except Exception:
