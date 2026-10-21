@@ -105,45 +105,36 @@ def force_markup(client, code):
     return InlineKeyboardMarkup(rows)
 
 
+
 async def show_fsub(client, message, code):
     user = message.from_user
 
-    caption = FORCE_MSG.format(
-        first=user.first_name or "",
-        last=user.last_name or "",
-        username=(
-            f"@{user.username}"
-            if user.username
-            else ""
-        ),
-        mention=user.mention,
-        id=user.id,
+    caption = (
+        f"👋 Welcome, {user.first_name or 'Friend'} To Anime Soul!\n\n"
+        "You Need To Join All Channel To Use Me!!"
     )
 
     markup = force_markup(client, code)
 
+    ANIME_SOUL_PHOTO = (
+        "AgACAgUAAxkBAAJhaGrTZnBn0C__hqG6B6gBYDfcrdLIAAIbKGsbxweYVixVH6xZWLKeAAgBAAMCAAN5AAceBA"
+    )
+
     try:
-        if FORCE_PIC:
-            await message.reply_photo(
-                FORCE_PIC,
-                caption=caption,
-                reply_markup=markup
-            )
-        else:
-            await message.reply_text(
-                caption,
-                reply_markup=markup,
-                disable_web_page_preview=True
-            )
+        await message.reply_photo(
+            photo=ANIME_SOUL_PHOTO,
+            caption=caption,
+            reply_markup=markup
+        )
 
     except Exception:
+        LOG.exception("ANIME SOUL FSUB banner failed")
+
         await message.reply_text(
             caption,
             reply_markup=markup,
             disable_web_page_preview=True
         )
-
-
 
 async def deliver_file(client, user_id: int, code: str):
     LOG.info("DELIVERY START user=%s", user_id)
