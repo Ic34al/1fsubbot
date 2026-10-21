@@ -384,38 +384,11 @@ async def check_again(
             return
 
         
+        
         LOG.info(
-            "TRY AGAIN: all channels passed; showing welcome and sending file user=%s",
+            "TRY AGAIN: all channels passed; resuming original /start flow user=%s",
             user.id
         )
-
-        welcome = START_MSG.format(
-            first=user.first_name or "",
-            last=user.last_name or "",
-            username=f"@{user.username}" if user.username else "",
-            mention=user.mention,
-            id=user.id,
-        )
-
-        ANIME_SOUL_PHOTO = (
-            "AgACAgUAAxkBAAJhaGrTZnBn0C__hqG6B6gBYDfcrdLIAAIbKGsbxweYVixVH6xZWLKeAAgBAAMCAAN5AAceBA"
-        )
-
-        try:
-            await client.send_photo(
-                chat_id=user.id,
-                photo=ANIME_SOUL_PHOTO,
-                caption=welcome
-            )
-        except Exception:
-            LOG.exception(
-                "ANIME SOUL welcome photo failed user=%s",
-                user.id
-            )
-            await client.send_message(
-                user.id,
-                welcome
-            )
 
         success = await deliver_file(
             client,
