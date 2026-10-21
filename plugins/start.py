@@ -329,6 +329,7 @@ async def start(
     )
 
 
+
 @Bot.on_callback_query(
     filters.regex(r"^check:")
 )
@@ -336,39 +337,96 @@ async def check_again(
     client: Bot,
     query: CallbackQuery
 ):
-    code = query.data.split(":", 1)[1]
     user = query.from_user
+    data = query.data or ""
 
-    await query.answer(
-        "Checking your channel requests…"
-    )
-
-    await db.set_pending_file(
-        user.id,
-        code
-    )
-
-    if (
-        user.id not in ADMINS
-        and not await all_channels_satisfied(
-            client,
-            user.id
-        )
-    ):
-        try:
-            await query.message.edit_reply_markup(
-                force_markup(client, code)
-            )
-        except Exception:
-            pass
-
+    if not user:
+        await query.answer("Unable to identify user.", show_alert=True)
         return
 
-    await deliver_file(
-        client,
-        user.id,
-        code
+    if not data.startswith("check:"):
+        await query.answer("Invalid file link.", show_alert=True)
+        return
+
+    code = data.split(":", 1)[1]
+
+    try:
+        await query.answer("Checking your channel requests…")
+    except Exception:
+        LOG.exception(
+            "Could not answer callback for user=%s",
+            user.id
+        )
+
+    LOG.info(
+        "TRY AGAIN CLICKED user=%s",
+        user.id
     )
+
+    try:
+        # Save the original file code before checking subscriptions.
+        await db.set_pending_file(user.id, code)
+
+        # Verify all four channels.
+        if (
+            user.id not in ADMINS
+            and not await all_channels_satisfied(
+                client,
+                user.id
+            )
+        ):
+            LOG.warning(
+                "TRY AGAIN: subscriptions incomplete user=%s",
+                user.id
+            )
+
+            try:
+                await query.message.edit_reply_markup(
+                    force_markup(client, code)
+                )
+            except Exception:
+                LOG.exception(
+                    "Could not refresh FSUB buttons user=%s",
+                    user.id
+                )
+
+            return
+
+        LOG.info(
+            "TRY AGAIN: all channels passed; sending file user=%s",
+            user.id
+        )
+
+        # Send the file using the original /start code.
+        success = await deliver_file(
+            client,
+            user.id,
+            code
+        )
+
+        if success:
+            LOG.info(
+                "TRY AGAIN: file delivered successfully user=%s",
+                user.id
+            )
+
+    except Exception:
+        LOG.exception(
+            "TRY AGAIN FAILED user=%s",
+            user.id
+        )
+
+        try:
+            await client.send_message(
+                user.id,
+                "❌ Something went wrong while checking your "
+                "subscriptions or sending the file. Please try again."
+            )
+        except Exception:
+            LOG.exception(
+                "Could not notify user about delivery failure user=%s",
+                user.id
+            )
 
 
 @Bot.on_message(
