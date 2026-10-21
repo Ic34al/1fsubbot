@@ -144,85 +144,107 @@ async def show_fsub(client, message, code):
         )
 
 
+
 async def deliver_file(client, user_id: int, code: str):
+    LOG.info("DELIVERY START user=%s", user_id)
+
     try:
         decoded = await decode(code)
-
     except Exception:
-        await client.send_message(
-            user_id,
-            "❌ This file link is invalid."
-        )
+        LOG.exception("FILE CODE DECODE FAILED user=%s", user_id)
+        await client.send_message(user_id, "❌ This file link is invalid.")
         return False
 
-    message_ids = parse_decoded_file_code(
-        client,
-        decoded
-    )
+    message_ids = parse_decoded_file_code(client, decoded)
 
     if not message_ids:
+        LOG.warning("INVALID FILE CODE user=%s", user_id)
         await client.send_message(
             user_id,
-            "❌ This link is invalid or the batch "
-            "is too large."
+            "❌ This link is invalid or the batch is too large."
         )
         return False
 
-    sent = 0
+    try:
+        messages = await get_messages(client, message_ids)
+    except Exception:
+        LOG.exception("SOURCE FETCH FAILED user=%s", user_id)
+        await client.send_message(
+            user_id,
+            "❌ Could not retrieve the files. Please try again later."
+        )
+        return False
 
-    messages = await get_messages(
-        client,
-        message_ids
+    if not messages:
+        LOG.error(
+            "NO SOURCE MESSAGES user=%s requested=%s",
+            user_id, len(message_ids)
+        )
+        await client.send_message(
+            user_id,
+            "❌ No source files were found. The source post may have been deleted."
+        )
+        return False
+
+    semaphore = asyncio.Semaphore(3)
+
+    async def copy_one(msg):
+        async with semaphore:
+            for attempt in range(2):
+                try:
+                    await msg.copy(
+                        chat_id=user_id,
+                        caption=CUSTOM_CAPTION or None,
+                        protect_content=PROTECT_CONTENT,
+                    )
+                    return True
+
+                except FloodWait as exc:
+                    LOG.warning(
+                        "TELEGRAM FLOOD WAIT seconds=%s user=%s",
+                        exc.value, user_id
+                    )
+                    if attempt == 0:
+                        await asyncio.sleep(exc.value)
+                    else:
+                        return False
+
+                except Exception:
+                    LOG.exception(
+                        "FILE COPY FAILED message=%s user=%s",
+                        msg.id, user_id
+                    )
+                    return False
+
+            return False
+
+    results = await asyncio.gather(
+        *(copy_one(msg) for msg in messages)
     )
 
-    for msg in messages:
-        try:
-            await msg.copy(
-                chat_id=user_id,
-                caption=CUSTOM_CAPTION or None,
-                protect_content=PROTECT_CONTENT,
-            )
+    sent = sum(results)
 
-            sent += 1
-
-        except FloodWait as exc:
-            await asyncio.sleep(exc.value)
-
-            try:
-                await msg.copy(
-                    chat_id=user_id,
-                    caption=CUSTOM_CAPTION or None,
-                    protect_content=PROTECT_CONTENT,
-                )
-
-                sent += 1
-
-            except Exception:
-                LOG.exception(
-                    "Could not send message %s to user %s",
-                    msg.id,
-                    user_id
-                )
-
-        except Exception:
-            LOG.exception(
-                "Could not send message %s to user %s",
-                msg.id,
-                user_id
-            )
+    LOG.info(
+        "DELIVERY FINISHED user=%s sent=%s total=%s",
+        user_id, sent, len(messages)
+    )
 
     if sent:
         await db.clear_pending_file(user_id)
+
+        if sent < len(message_ids):
+            LOG.warning(
+                "PARTIAL DELIVERY user=%s sent=%s requested=%s",
+                user_id, sent, len(message_ids)
+            )
+
         return True
 
     await client.send_message(
         user_id,
-        "❌ No files could be delivered. "
-        "The source post may have been deleted."
+        "❌ No files could be delivered. Check the Heroku logs for details."
     )
-
     return False
-
 
 async def process_file_request(
     client,
