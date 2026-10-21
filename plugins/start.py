@@ -347,7 +347,8 @@ async def check_again(
             )
             return
 
-                await query.answer(
+
+        await query.answer(
             "Subscription verified! Sending your files..."
         )
 
