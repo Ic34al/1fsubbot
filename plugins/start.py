@@ -319,7 +319,6 @@ async def check_again(
 ):
     user = query.from_user
     data = query.data or ""
-
     code = data.split(":", 1)[1] if ":" in data else ""
 
     if not code:
@@ -329,8 +328,6 @@ async def check_again(
         )
         return
 
-    await query.answer("Checking subscriptions...")
-
     LOG.info(
         "TRY AGAIN CLICKED user=%s",
         user.id
@@ -339,7 +336,7 @@ async def check_again(
     try:
         await db.set_pending_file(user.id, code)
 
-        # Check all required channels for the actual clicking user.
+        # Check all required channels for this user.
         if (
             user.id not in ADMINS
             and not await all_channels_satisfied(
@@ -347,17 +344,19 @@ async def check_again(
                 user.id
             )
         ):
-            await query.message.edit_reply_markup(
-                force_markup(client, code)
-            )
             await query.answer(
                 "Please join all required channels first.",
                 show_alert=True
             )
+
+            await query.message.edit_reply_markup(
+                force_markup(client, code)
+            )
             return
 
+        await query.answer("Subscription verified! Sending file...")
 
-        # Rerun the original file-request flow.
+        # Continue with the SAME original file code.
         await process_file_request(
             client,
             None,
