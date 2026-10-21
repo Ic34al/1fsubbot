@@ -117,7 +117,7 @@ async def show_fsub(client, message, code):
     markup = force_markup(client, code)
 
     ANIME_SOUL_PHOTO = (
-        "AgACAgUAAxkBAAJhaGrTZnBn0C__hqG6B6gBYDfcrdLIAAIbKGsbxweYVixVH6xZWLKeAAgBAAMCAAN5AAceBA"
+        "AgACAgUAAxkBAAFWbHFq2BilvD7iKj-CUgaX6zOY2OE-YAACKBFrG4X_wVZN7HUi2pMmtQEAAwIAA3kAAz0E"
     )
 
     try:
