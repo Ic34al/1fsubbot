@@ -237,7 +237,7 @@ async def deliver_file(client, user_id: int, code: str):
     )
     return False
 
-async def process_file_requestu(
+async def process_file_request(
     client,
     message,
     code
