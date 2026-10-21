@@ -310,6 +310,7 @@ async def start(
     )
 
 
+
 @Bot.on_callback_query(
     filters.regex(r"^check:")
 )
@@ -328,40 +329,51 @@ async def check_again(
         )
         return
 
-    LOG.info(
-        "TRY AGAIN CLICKED user=%s",
-        user.id
-    )
-
     try:
         await db.set_pending_file(user.id, code)
 
-        # Check all required channels for this user.
         if (
             user.id not in ADMINS
             and not await all_channels_satisfied(
-                client,
-                user.id
+                client, user.id
             )
         ):
             await query.answer(
                 "Please join all required channels first.",
                 show_alert=True
             )
-
             await query.message.edit_reply_markup(
                 force_markup(client, code)
             )
             return
 
-        await query.answer("Subscription verified! Sending file...")
+        bot_username = getattr(client, "username", None)
 
-        # Continue with the SAME original file code.
-        await process_file_request(
-            client,
-            None,
-            code,
-            user_id=user.id
+        if not bot_username:
+            me = await client.get_me()
+            bot_username = me.username
+
+        if not bot_username:
+            await query.answer(
+                "Could not create the file link.",
+                show_alert=True
+            )
+            return
+
+        get_file_markup = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "📥 GET FILE",
+                    url=f"https://t.me/{bot_username}?start={code}"
+                )
+            ]
+        ])
+
+        await query.answer(
+            "Verified! Tap GET FILE, then press Start."
+        )
+        await query.message.edit_reply_markup(
+            get_file_markup
         )
 
     except Exception:
@@ -369,17 +381,10 @@ async def check_again(
             "TRY AGAIN FAILED user=%s",
             user.id
         )
-
-        try:
-            await client.send_message(
-                user.id,
-                "❌ Could not complete your request. Please try again."
-            )
-        except Exception:
-            LOG.exception(
-                "Could not notify user=%s",
-                user.id
-            )
+        await query.answer(
+            "Verification failed. Please try again.",
+            show_alert=True
+        )
 
 
 @Bot.on_message(
