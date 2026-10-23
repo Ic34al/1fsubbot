@@ -85,19 +85,6 @@ async def begin_link(client: Bot, message: Message):
         "batch",
     ])
 )
-
-@Bot.on_message(
-    filters.private
-    & filters.user(list(ADMINS))
-    & ~filters.command([
-        "start",
-        "users",
-        "broadcast",
-        "stats",
-        "genlink",
-        "batch",
-    ])
-)
 async def receive_link_input(client: Bot, message: Message):
     user_id = message.from_user.id
     state = pending.get(user_id)
