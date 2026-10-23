@@ -145,10 +145,27 @@ async def receive_link_input(client: Bot, message: Message):
             chat_id=client.db_channel.id
         )
 
+                media = (
+            message.document
+            or message.video
+            or message.audio
+            or message.animation
+            or message.voice
+            or message.video_note
+            or message.photo
+        )
+
+        file_name = (
+            getattr(media, "file_name", None)
+            or getattr(media, "file_unique_id", None)
+            or "Your file"
+        )
+
         await finish_link(
             client,
             message,
-            [saved.id]
+            [saved.id],
+            file_name=file_name
         )
 
     except Exception:
