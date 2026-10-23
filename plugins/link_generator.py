@@ -41,7 +41,9 @@ async def finish_link(client, message, ids, file_name=None):
     name = file_name or "Your file"
 
     await message.reply_text(
-        f"Here is your link:\n\n{link}",
+        f"<b>File link created:</b>\n"
+        f"{name}\n\n"
+        f"Here is your link:\n{link}",
         reply_to_message_id=message.id,
         reply_markup=link_markup(link),
         disable_web_page_preview=True,
@@ -87,19 +89,43 @@ async def receive_link_input(client: Bot, message: Message):
     state = pending.get(message.from_user.id)
 
     # Existing manual /genlink and /batch workflow.
-    if state and message.chat.id == state["chat_id"]:
-        try:
-            msg_id = await get_message_id(client, message)
-        except Exception:
-            LOG.exception("Could not identify database post")
-            msg_id = None
+        if state and message.chat.id == state["chat_id"]:
+        if not message.text:
+            pending.pop(message.from_user.id, None)
+        else:
+            try:
+                msg_id = await get_message_id(client, message)
+            except Exception:
+                LOG.exception("Could not identify database post")
+                msg_id = None
 
-        if not msg_id:
-            await message.reply_text(
-                "❌ Couldn't identify that database post. "
-                "Forward the post from your storage channel "
-                "or send its post link."
-            )
+            if not msg_id:
+                await message.reply_text(
+                    "❌ Couldn't identify that database post. "
+                    "Send a valid storage-channel post link."
+                )
+                return
+
+            state["ids"].append(msg_id)
+
+            if state["mode"] == "batch" and len(state["ids"]) == 1:
+                await message.reply_text(
+                    "Now forward the LAST database post."
+                )
+                return
+
+            ids = state["ids"][:]
+            pending.pop(message.from_user.id, None)
+
+            try:
+                if len(ids) == 2 and ids[0] > ids[1]:
+                    ids.reverse()
+                await finish_link(client, message, ids)
+            except Exception:
+                LOG.exception("Link generation failed")
+                await message.reply_text(
+                    "❌ Link generation failed. Check Heroku logs."
+                )
             return
 
         state["ids"].append(msg_id)
