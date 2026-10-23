@@ -85,27 +85,33 @@ async def begin_link(client: Bot, message: Message):
         "batch",
     ])
 )
+
+@Bot.on_message(
+    filters.private
+    & filters.user(list(ADMINS))
+    & ~filters.command([
+        "start",
+        "users",
+        "broadcast",
+        "stats",
+        "genlink",
+        "batch",
+    ])
+)
 async def receive_link_input(client: Bot, message: Message):
-    state = pending.get(message.from_user.id)
+    user_id = message.from_user.id
+    state = pending.get(user_id)
 
-    # Existing manual /genlink and /batch workflow.
-        if state and message.chat.id == state["chat_id"]:
-        if not message.text:
-            pending.pop(message.from_user.id, None)
-        else:
-            try:
-                msg_id = await get_message_id(client, message)
-            except Exception:
-                LOG.exception("Could not identify database post")
-                msg_id = None
+    # Continue an existing /genlink or /batch workflow only
+    # for text containing a storage-channel post link.
+    if state and message.chat.id == state["chat_id"] and message.text:
+        try:
+            msg_id = await get_message_id(client, message)
+        except Exception:
+            LOG.exception("Could not identify database post")
+            msg_id = None
 
-            if not msg_id:
-                await message.reply_text(
-                    "❌ Couldn't identify that database post. "
-                    "Send a valid storage-channel post link."
-                )
-                return
-
+        if msg_id:
             state["ids"].append(msg_id)
 
             if state["mode"] == "batch" and len(state["ids"]) == 1:
@@ -115,11 +121,12 @@ async def receive_link_input(client: Bot, message: Message):
                 return
 
             ids = state["ids"][:]
-            pending.pop(message.from_user.id, None)
+            pending.pop(user_id, None)
 
             try:
                 if len(ids) == 2 and ids[0] > ids[1]:
                     ids.reverse()
+
                 await finish_link(client, message, ids)
             except Exception:
                 LOG.exception("Link generation failed")
@@ -128,33 +135,16 @@ async def receive_link_input(client: Bot, message: Message):
                 )
             return
 
-        state["ids"].append(msg_id)
-
-        if state["mode"] == "batch" and len(state["ids"]) == 1:
-            await message.reply_text(
-                "Now forward the LAST database post."
-            )
-            return
-
-        ids = state["ids"][:]
-        pending.pop(message.from_user.id, None)
-
-        try:
-            if len(ids) == 2 and ids[0] > ids[1]:
-                ids.reverse()
-
-            await finish_link(client, message, ids)
-
-        except Exception:
-            LOG.exception("Link generation failed")
-            await message.reply_text(
-                "❌ Link generation failed. Check Heroku logs."
-            )
-
+        await message.reply_text(
+            "❌ Couldn't identify that database post. "
+            "Send a valid storage-channel post link, or send a file "
+            "to generate a link automatically."
+        )
         return
 
-    # Automatic link generation for a file sent directly to the bot.
-    if not (
+    # Automatically generate an individual link for each file
+    # sent directly to the bot.
+    media = (
         message.document
         or message.video
         or message.audio
@@ -162,22 +152,15 @@ async def receive_link_input(client: Bot, message: Message):
         or message.photo
         or message.voice
         or message.video_note
-    ):
+    )
+
+    if not media:
         return
 
     try:
+        # Save a copy to the configured storage channel.
         saved = await message.copy(
             chat_id=client.db_channel.id
-        )
-
-        media = (
-            message.document
-            or message.video
-            or message.audio
-            or message.animation
-            or message.voice
-            or message.video_note
-            or message.photo
         )
 
         file_name = (
@@ -186,6 +169,7 @@ async def receive_link_input(client: Bot, message: Message):
             or "Your file"
         )
 
+        # Reply to the original file with its own link and button.
         await finish_link(
             client,
             message,
@@ -196,10 +180,10 @@ async def receive_link_input(client: Bot, message: Message):
     except Exception:
         LOG.exception(
             "Automatic file link generation failed user=%s",
-            message.from_user.id
+            user_id
         )
 
         await message.reply_text(
             "❌ Couldn't save the file or generate its link. "
-            "Check the bot's Heroku logs and storage-channel permissions."
+            "Check Heroku logs and storage-channel permissions."
         )
