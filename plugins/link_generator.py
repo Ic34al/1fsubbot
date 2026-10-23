@@ -28,7 +28,7 @@ def link_markup(link):
     ]])
 
 
-async def finish_link(client, message, ids):
+async def finish_link(client, message, ids, file_name=None):
     divisor = abs(client.db_channel.id)
 
     encoded = "get-" + "-".join(
@@ -38,8 +38,12 @@ async def finish_link(client, message, ids):
     code = await encode(encoded)
     link = f"https://t.me/{client.username}?start={code}"
 
+    name = file_name or "Your file"
+
     await message.reply_text(
-        f"<b>File link created:</b>\n{link}",
+        f"📁 <b>{name}</b>\n\n"
+        f"Here is your link:\n\n"
+        f"{link}",
         reply_markup=link_markup(link),
         disable_web_page_preview=True,
     )
