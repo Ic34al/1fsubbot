@@ -145,7 +145,7 @@ async def receive_link_input(client: Bot, message: Message):
             chat_id=client.db_channel.id
         )
 
-                media = (
+        media = (
             message.document
             or message.video
             or message.audio
