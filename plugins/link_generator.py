@@ -23,7 +23,7 @@ def link_markup(link):
     return InlineKeyboardMarkup([[
         InlineKeyboardButton(
             "🔁 Share URL",
-            url=f"https://telegram.me/share/url?url={link}",
+            url=f"https://t.me/share/url?url={link}",
         )
     ]])
 
