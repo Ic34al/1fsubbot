@@ -41,9 +41,8 @@ async def finish_link(client, message, ids, file_name=None):
     name = file_name or "Your file"
 
     await message.reply_text(
-        f"📁 <b>{name}</b>\n\n"
-        f"Here is your link:\n\n"
-        f"{link}",
+        f"Here is your link:\n\n{link}",
+        reply_to_message_id=message.id,
         reply_markup=link_markup(link),
         disable_web_page_preview=True,
     )
@@ -157,7 +156,7 @@ async def receive_link_input(client: Bot, message: Message):
 
         file_name = (
             getattr(media, "file_name", None)
-            or getattr(media, "file_unique_id", None)
+            or getattr(message, "caption", None)
             or "Your file"
         )
 
