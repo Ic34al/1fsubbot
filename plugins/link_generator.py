@@ -1,3 +1,4 @@
+
 import asyncio
 import logging
 
@@ -29,9 +30,11 @@ def link_markup(link):
 
 async def finish_link(client, message, ids):
     divisor = abs(client.db_channel.id)
+
     encoded = "get-" + "-".join(
         str(msg_id * divisor) for msg_id in ids
     )
+
     code = await encode(encoded)
     link = f"https://t.me/{client.username}?start={code}"
 
@@ -49,6 +52,7 @@ async def finish_link(client, message, ids):
 )
 async def begin_link(client: Bot, message: Message):
     mode = message.command[0].lower()
+
     pending[message.from_user.id] = {
         "mode": mode,
         "ids": [],
@@ -60,8 +64,8 @@ async def begin_link(client: Bot, message: Message):
         if mode == "batch"
         else "Forward the database post or send its post link."
     )
-    await message.reply_text(prompt)
 
+    await message.reply_text(prompt)
 
 
 @Bot.on_message(
@@ -78,37 +82,78 @@ async def begin_link(client: Bot, message: Message):
 )
 async def receive_link_input(client: Bot, message: Message):
     state = pending.get(message.from_user.id)
-    if not state or message.chat.id != state["chat_id"]:
+
+    # Existing manual /genlink and /batch workflow.
+    if state and message.chat.id == state["chat_id"]:
+        try:
+            msg_id = await get_message_id(client, message)
+        except Exception:
+            LOG.exception("Could not identify database post")
+            msg_id = None
+
+        if not msg_id:
+            await message.reply_text(
+                "❌ Couldn't identify that database post. "
+                "Forward the post from your storage channel "
+                "or send its post link."
+            )
+            return
+
+        state["ids"].append(msg_id)
+
+        if state["mode"] == "batch" and len(state["ids"]) == 1:
+            await message.reply_text(
+                "Now forward the LAST database post."
+            )
+            return
+
+        ids = state["ids"][:]
+        pending.pop(message.from_user.id, None)
+
+        try:
+            if len(ids) == 2 and ids[0] > ids[1]:
+                ids.reverse()
+
+            await finish_link(client, message, ids)
+
+        except Exception:
+            LOG.exception("Link generation failed")
+            await message.reply_text(
+                "❌ Link generation failed. Check Heroku logs."
+            )
+
+        return
+
+    # Automatic link generation for a file sent directly to the bot.
+    if not (
+        message.document
+        or message.video
+        or message.audio
+        or message.animation
+        or message.photo
+        or message.voice
+        or message.video_note
+    ):
         return
 
     try:
-        msg_id = await get_message_id(client, message)
-    except Exception:
-        LOG.exception("Could not identify database post")
-        msg_id = None
-
-    if not msg_id:
-        await message.reply_text(
-            "❌ Couldn't identify that database post. "
-            "Forward the post from your storage channel or send its post link."
+        saved = await message.copy(
+            chat_id=client.db_channel.id
         )
-        return
 
-    state["ids"].append(msg_id)
+        await finish_link(
+            client,
+            message,
+            [saved.id]
+        )
 
-    if state["mode"] == "batch" and len(state["ids"]) == 1:
-        await message.reply_text("Now forward the LAST database post.")
-        return
-
-    ids = state["ids"][:]
-    pending.pop(message.from_user.id, None)
-
-    try:
-        if len(ids) == 2 and ids[0] > ids[1]:
-            ids.reverse()
-        await finish_link(client, message, ids)
     except Exception:
-        LOG.exception("Link generation failed")
+        LOG.exception(
+            "Automatic file link generation failed user=%s",
+            message.from_user.id
+        )
+
         await message.reply_text(
-            "❌ Link generation failed. Check Heroku logs."
+            "❌ Couldn't save the file or generate its link. "
+            "Check the bot's Heroku logs and storage-channel permissions."
         )
