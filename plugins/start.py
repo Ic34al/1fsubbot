@@ -69,6 +69,30 @@ def parse_decoded_file_code(client, decoded):
     return list(range(first, last + 1))
 
 
+def welcome_markup(client):
+    """Show all four force-subscription channel links on plain /start."""
+    rows = []
+    links = []
+
+    for channel in FSUB_CHANNELS:
+        link = (
+            client.invite_links.get(channel["id"])
+            or channel["link"]
+        )
+        links.append((channel["number"], link))
+
+    for i in range(0, len(links), 2):
+        rows.append([
+            InlineKeyboardButton(
+                f"↗ Join Channel {number}",
+                url=link
+            )
+            for number, link in links[i:i + 2]
+        ])
+
+    return InlineKeyboardMarkup(rows)
+
+
 def force_markup(client, code):
     rows = []
     links = []
@@ -117,13 +141,12 @@ async def show_fsub(client, message, code):
 
     markup = force_markup(client, code)
 
-    ANIME_SOUL_PHOTO = (
-        "AgACAgUAAxkBAAFWbHFq2BilvD7iKj-CUgaX6zOY2OE-YAACKBFrG4X_wVZN7HUi2pMmtQEAAwIAA3kAAz0E"
-    )
-
     try:
+        if not START_PIC:
+            raise ValueError("START_PIC is not configured")
+
         await message.reply_photo(
-            photo=ANIME_SOUL_PHOTO,
+            photo=START_PIC,
             caption=caption,
             reply_markup=markup
         )
@@ -290,17 +313,27 @@ async def start(
             id=user.id,
         )
 
+        markup = welcome_markup(client)
+
         try:
             if START_PIC:
                 await message.reply_photo(
                     START_PIC,
-                    caption=text
+                    caption=text,
+                    reply_markup=markup
                 )
             else:
-                await message.reply_text(text)
+                await message.reply_text(
+                    text,
+                    reply_markup=markup
+                )
 
         except Exception:
-            await message.reply_text(text)
+            LOG.exception("Welcome photo failed; sending text fallback")
+            await message.reply_text(
+                text,
+                reply_markup=markup
+            )
 
         return
 
