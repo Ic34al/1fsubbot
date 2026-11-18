@@ -25,6 +25,28 @@ async def close():
     _client.close()
 
 
+async def register_user(user):
+    if not user:
+        return
+
+    now = datetime.now(timezone.utc)
+    await _users.update_one(
+        {"_id": int(user.id)},
+        {
+            "$set": {
+                "first_name": user.first_name or "",
+                "last_name": user.last_name or "",
+                "username": user.username or "",
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "joined_at": now,
+            },
+        },
+        upsert=True,
+    )
+
+
 async def get_user(user_id: int):
     return await _users.find_one({
         "_id": int(user_id)
