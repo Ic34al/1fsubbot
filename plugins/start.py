@@ -300,6 +300,8 @@ async def start(
     if not user:
         return
 
+    await db.register_user(user)
+
     if len(message.command) == 1:
         text = START_MSG.format(
             first=user.first_name or "",
